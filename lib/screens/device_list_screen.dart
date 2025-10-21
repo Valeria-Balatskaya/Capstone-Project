@@ -45,7 +45,6 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
         title: const Text('Tracked Devices'),
         backgroundColor: Colors.blue.shade800,
         foregroundColor: Colors.white,
-        // Hamburger menu will appear automatically with drawer
         actions: [
           IconButton(
             icon: const Icon(Icons.add),
@@ -60,7 +59,6 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
           ),
         ],
       ),
-      // ADD DRAWER HERE
       drawer: Drawer(
         child: ListView(
           padding: EdgeInsets.zero,
@@ -105,7 +103,7 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
               leading: Icon(Icons.my_location, color: Colors.grey.shade700),
               title: const Text('Position'),
               onTap: () {
-                Navigator.pop(context); // Close drawer
+                Navigator.pop(context); 
                 Navigator.pushReplacement(
                   context,
                   MaterialPageRoute(
@@ -123,14 +121,14 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
               selected: true,
               selectedTileColor: Colors.blue.shade50,
               onTap: () {
-                Navigator.pop(context); // Just close drawer (already on this screen)
+                Navigator.pop(context); 
               },
             ),
             ListTile(
               leading: Icon(Icons.settings, color: Colors.grey.shade700),
               title: const Text('Settings'),
               onTap: () {
-                Navigator.pop(context); // Close drawer
+                Navigator.pop(context); 
                 Navigator.pushReplacement(
                   context,
                   MaterialPageRoute(
@@ -144,7 +142,7 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
               leading: Icon(Icons.info_outline, color: Colors.grey.shade700),
               title: const Text('About'),
               onTap: () {
-                Navigator.pop(context); // Close drawer
+                Navigator.pop(context); 
                 Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -292,7 +290,6 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
           ),
         ),
         onTap: () {
-          // FIXED: Hide current snackbar immediately, then show new one
           ScaffoldMessenger.of(context).hideCurrentSnackBar();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(

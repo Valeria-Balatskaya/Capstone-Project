@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-// ABOUT SCREEN - Project information
 class AboutScreen extends StatelessWidget {
   const AboutScreen({super.key});
 
