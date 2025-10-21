@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'app_drawer.dart';
 
-// ABOUT SCREEN - Project information
 class AboutScreen extends StatelessWidget {
   const AboutScreen({super.key});
 
@@ -12,6 +12,7 @@ class AboutScreen extends StatelessWidget {
         backgroundColor: Colors.blue.shade800,
         foregroundColor: Colors.white,
       ),
+      drawer: const AppDrawer(currentRoute: 'about'),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -63,8 +64,8 @@ class AboutScreen extends StatelessWidget {
                     const SizedBox(height: 15),
                     const Text(
                       'LoraTrack is a capstone project that demonstrates '
-                      'indoor position measurement using LoRaWAN technology '
-                      'without GPS dependency.',
+                          'indoor position measurement using LoRaWAN technology '
+                          'without GPS dependency.',
                       style: TextStyle(fontSize: 14, height: 1.5),
                     ),
                     const SizedBox(height: 15),

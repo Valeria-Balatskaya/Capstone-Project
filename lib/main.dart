@@ -16,7 +16,6 @@ class LoraTrackApp extends StatelessWidget {
         primarySwatch: Colors.blue,
         useMaterial3: true,
       ),
-      // Opens directly to Live Position with hamburger menu
       home: const LiveTrackingScreen(),
       debugShowCheckedModeBanner: false,
     );

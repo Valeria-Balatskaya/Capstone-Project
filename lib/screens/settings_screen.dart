@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'live_tracking_screen.dart';
-import 'device_list_screen.dart';
-import 'about_screen.dart';
+import 'app_drawer.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -19,101 +17,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         backgroundColor: Colors.blue.shade800,
         foregroundColor: Colors.white,
       ),
-      drawer: Drawer(
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            DrawerHeader(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Colors.blue.shade400, Colors.blue.shade800],
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: const [
-                  Icon(
-                    Icons.location_on,
-                    size: 50,
-                    color: Colors.white,
-                  ),
-                  SizedBox(height: 10),
-                  Text(
-                    'LoraTrack',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Text(
-                    'LoRaWAN Position Tracking',
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 14,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            ListTile(
-              leading: Icon(Icons.my_location, color: Colors.grey.shade700),
-              title: const Text('Position'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const LiveTrackingScreen(),
-                  ),
-                );
-              },
-            ),
-            ListTile(
-              leading: Icon(Icons.devices, color: Colors.grey.shade700),
-              title: const Text('Devices'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const DeviceListScreen(),
-                  ),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.settings, color: Colors.blue),
-              title: const Text(
-                'Settings',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              selected: true,
-              selectedTileColor: Colors.blue.shade50,
-              onTap: () {
-                Navigator.pop(context);
-              },
-            ),
-            const Divider(),
-            ListTile(
-              leading: Icon(Icons.info_outline, color: Colors.grey.shade700),
-              title: const Text('About'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const AboutScreen(),
-                  ),
-                );
-              },
-            ),
-          ],
-        ),
-      ),
+      drawer: const AppDrawer(currentRoute: 'settings'),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
@@ -146,9 +50,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               );
             },
           ),
-          
+
           const SizedBox(height: 20),
-          
+
           _buildSectionTitle('Display Settings'),
           _buildSettingsTile(
             icon: Icons.palette,
@@ -178,9 +82,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               );
             },
           ),
-          
+
           const SizedBox(height: 20),
-          
+
           _buildSectionTitle('Tracking Settings'),
           _buildSettingsTile(
             icon: Icons.refresh,
