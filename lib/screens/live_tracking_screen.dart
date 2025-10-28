@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'app_drawer.dart';
+import '../services/device_service.dart';
 
 class LiveTrackingScreen extends StatefulWidget {
   const LiveTrackingScreen({super.key});
@@ -9,20 +10,151 @@ class LiveTrackingScreen extends StatefulWidget {
 }
 
 class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
-  String currentDevice = "Tracking Tag 2";
+  final DeviceService _deviceService = DeviceService();
+  
+  List<Map<String, dynamic>> devices = [];
+  Map<String, dynamic>? selectedDevice;
+  
   double xPosition = 12.5;
   double yPosition = 8.3;
   int gatewayCount = 3;
   double accuracy = 5.2;
   bool isTracking = true;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDevices();
+  }
+
+  Future<void> _loadDevices() async {
+    setState(() => _isLoading = true);
+    final loadedDevices = await _deviceService.loadDevices();
+    setState(() {
+      devices = loadedDevices;
+      if (devices.isNotEmpty) {
+        selectedDevice = devices.firstWhere(
+          (device) => device['status'] == 'online',
+          orElse: () => devices.first,
+        );
+        _updateTrackingData();
+      }
+      _isLoading = false;
+    });
+  }
+
+  void _updateTrackingData() {
+    if (selectedDevice != null) {
+      setState(() {
+        isTracking = selectedDevice!['status'] == 'online';
+        accuracy = selectedDevice!['accuracy']?.toDouble() ?? 0.0;
+        gatewayCount = devices.where((d) => d['status'] == 'online').length;
+      });
+    }
+  }
+
+  void _showDeviceSelector() {
+  showModalBottomSheet(
+    context: context,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (context) => Container(
+      padding: const EdgeInsets.all(20),
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.6,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.grey.shade300,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            'Select Device to Track',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 20),
+          Flexible(
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: devices.length,
+              itemBuilder: (context, index) {
+                final device = devices[index];
+                final isSelected = selectedDevice?['id'] == device['id'];
+                final isOnline = device['status'] == 'online';
+                
+                return ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: isOnline ? Colors.green.shade50 : Colors.grey.shade200,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      Icons.sensors,
+                      color: isOnline ? Colors.green : Colors.grey,
+                    ),
+                  ),
+                  title: Text(
+                    device['name'],
+                    style: TextStyle(
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    ),
+                  ),
+                  subtitle: Text(
+                    device['status'].toString().toUpperCase(),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isOnline ? Colors.green : Colors.grey,
+                    ),
+                  ),
+                  trailing: isSelected
+                      ? Icon(Icons.check_circle, color: Colors.blue.shade800)
+                      : null,
+                  onTap: () {
+                    setState(() {
+                      selectedDevice = device;
+                      _updateTrackingData();
+                    });
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Now tracking ${device['name']}'),
+                        duration: const Duration(seconds: 1),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 10),
+        ],
+      ),
+    ),
+  );
+}
 
   void _refreshPosition() {
     setState(() {
+      xPosition += (0.5 - (xPosition % 1));
+      yPosition += (0.3 - (yPosition % 1));
     });
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Refreshing position...'),
+        content: Text('Position refreshed'),
         duration: Duration(seconds: 1),
       ),
     );
@@ -30,12 +162,79 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Live Tracking'),
+          backgroundColor: Colors.blue.shade800,
+          foregroundColor: Colors.white,
+        ),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (devices.isEmpty) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Live Tracking'),
+          backgroundColor: Colors.blue.shade800,
+          foregroundColor: Colors.white,
+        ),
+        drawer: const AppDrawer(currentRoute: 'position'),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.devices_other,
+                size: 80,
+                color: Colors.grey.shade400,
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'No devices available',
+                style: TextStyle(
+                  fontSize: 18,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Add devices to start tracking',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey.shade500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(currentDevice),
+        title: InkWell(
+          onTap: _showDeviceSelector,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(selectedDevice?['name'] ?? 'No Device'),
+              const SizedBox(width: 5),
+              const Icon(Icons.arrow_drop_down, size: 20),
+            ],
+          ),
+        ),
         centerTitle: true,
         backgroundColor: Colors.blue.shade800,
         foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.swap_horiz),
+            tooltip: 'Switch Device',
+            onPressed: _showDeviceSelector,
+          ),
+        ],
       ),
       drawer: const AppDrawer(currentRoute: 'position'),
       body: Stack(
@@ -229,8 +428,8 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
                   children: [
                     _buildQuickInfo(
                       icon: Icons.router,
-                      label: 'Gateways',
-                      value: '$gatewayCount',
+                      label: 'Devices',
+                      value: '${devices.length}',
                       color: Colors.green,
                     ),
                     _buildDivider(),
