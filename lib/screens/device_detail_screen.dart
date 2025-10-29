@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'live_tracking_screen.dart';
 
 class DeviceDetailScreen extends StatelessWidget {
   final Map<String, dynamic> device;
@@ -15,6 +16,21 @@ class DeviceDetailScreen extends StatelessWidget {
         title: Text(device['name']),
         backgroundColor: Colors.blue.shade800,
         foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.home),
+            tooltip: 'Go to Main Screen',
+            onPressed: () {
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const LiveTrackingScreen(),
+                ),
+                (route) => false,
+              );
+            },
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),

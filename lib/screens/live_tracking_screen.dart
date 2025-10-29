@@ -228,13 +228,6 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
         centerTitle: true,
         backgroundColor: Colors.blue.shade800,
         foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.swap_horiz),
-            tooltip: 'Switch Device',
-            onPressed: _showDeviceSelector,
-          ),
-        ],
       ),
       drawer: const AppDrawer(currentRoute: 'position'),
       body: Stack(

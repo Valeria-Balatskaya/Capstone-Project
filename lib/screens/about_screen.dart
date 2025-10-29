@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'app_drawer.dart';
+import 'live_tracking_screen.dart';
 
 class AboutScreen extends StatelessWidget {
   const AboutScreen({super.key});
@@ -11,7 +12,22 @@ class AboutScreen extends StatelessWidget {
         title: const Text('About LoraTrack'),
         backgroundColor: Colors.blue.shade800,
         foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.home),
+            tooltip: 'Go to Main Screen',
+            onPressed: () {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const LiveTrackingScreen(),
+                ),
+              );
+            },
+          ),
+        ],
       ),
+
       drawer: const AppDrawer(currentRoute: 'about'),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),

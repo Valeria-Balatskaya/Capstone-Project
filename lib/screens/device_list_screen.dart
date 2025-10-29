@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'app_drawer.dart';
 import 'device_detail_screen.dart';
+import 'live_tracking_screen.dart';
 import '../services/device_service.dart';
 
 class DeviceListScreen extends StatefulWidget {
@@ -96,7 +97,7 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
                     'accuracy': 0.0,
                   });
                 });
-                await _saveDevices(); 
+                await _saveDevices();
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
@@ -207,7 +208,7 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
               setState(() {
                 devices.removeAt(index);
               });
-              await _saveDevices(); 
+              await _saveDevices();
               Navigator.pop(context);
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
@@ -220,7 +221,7 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
                       setState(() {
                         devices.insert(index, deletedDevice);
                       });
-                      await _saveDevices(); 
+                      await _saveDevices();
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
                           content: Text('Device restored'),
@@ -340,7 +341,20 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
         foregroundColor: Colors.white,
         actions: [
           IconButton(
+            icon: const Icon(Icons.home),
+            tooltip: 'Go to Main Screen',
+            onPressed: () {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const LiveTrackingScreen(),
+                ),
+              );
+            },
+          ),
+          IconButton(
             icon: const Icon(Icons.add),
+            tooltip: 'Add Device',
             onPressed: _showAddDeviceDialog,
           ),
         ],
