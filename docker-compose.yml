@@ -1,0 +1,111 @@
+services:
+  postgres:
+    image: postgres:14-alpine
+    container_name: chirpstack-postgres
+    restart: unless-stopped
+    volumes:
+      - postgresqldata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: chirpstack
+      POSTGRES_USER: chirpstack
+      POSTGRES_PASSWORD: chirpstack
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chirpstack"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - chirpstack
+
+  redis:
+    image: redis:7-alpine
+    container_name: chirpstack-redis
+    restart: unless-stopped
+    volumes:
+      - redisdata:/data
+    networks:
+      - chirpstack
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: chirpstack-mosquitto
+    restart: unless-stopped
+    command: mosquitto -c /mosquitto-no-auth.conf
+    ports:
+      - 1883:1883
+    networks:
+      - chirpstack
+
+  chirpstack:
+    image: chirpstack/chirpstack:4
+    container_name: chirpstack-server
+    command: -c /etc/chirpstack
+    restart: unless-stopped
+    volumes:
+      - ./configuration/chirpstack:/etc/chirpstack
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      mosquitto:
+        condition: service_started
+    environment:
+      POSTGRESQL__DSN: postgres://chirpstack:chirpstack@postgres/chirpstack?sslmode=disable
+      REDIS__SERVERS: redis://redis:6379
+      NETWORK__NET_ID: "000000"
+    ports:
+      - 8080:8080
+    networks:
+      - chirpstack
+
+  chirpstack-gateway-bridge:
+    image: chirpstack/chirpstack-gateway-bridge:4
+    container_name: chirpstack-gateway-bridge
+    restart: unless-stopped
+    ports:
+      - 1700:1700/udp
+    environment:
+      INTEGRATION__MQTT__EVENT_TOPIC_TEMPLATE: eu868/gateway/{{ .GatewayID }}/event/{{ .EventType }}
+      INTEGRATION__MQTT__STATE_TOPIC_TEMPLATE: eu868/gateway/{{ .GatewayID }}/state/{{ .StateType }}
+      INTEGRATION__MQTT__COMMAND_TOPIC_TEMPLATE: eu868/gateway/{{ .GatewayID }}/command/#
+      INTEGRATION__MQTT__SERVER: tcp://mosquitto:1883
+      BACKEND__SEMTECH_UDP__UDP_BIND: 0.0.0.0:1700
+    depends_on:
+      - mosquitto
+    networks:
+      - chirpstack
+
+  chirpstack-rest-api:
+    image: chirpstack/chirpstack-rest-api:4
+    container_name: chirpstack-rest-api
+    restart: unless-stopped
+    command: --server chirpstack-server:8080 --bind 0.0.0.0:8090 --insecure
+    ports:
+      - 8090:8090
+    depends_on:
+      - chirpstack
+    networks:
+      - chirpstack
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: chirpstack-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@chirpstack.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - 5050:80
+    networks:
+      - chirpstack
+    depends_on:
+      - postgres
+
+volumes:
+  postgresqldata:
+  redisdata:
+
+networks:
+  chirpstack:
+    driver: bridge
