@@ -1,6 +1,6 @@
 # LoraTrack
 
-**Version 1.2.0**
+**Version 1.4.0**
 
 A Flutter mobile application for real-time indoor position tracking using LoRaWAN technology without GPS dependency.
 
@@ -16,6 +16,7 @@ LoraTrack is a mobile application for Capstone Module project that demonstrates 
 - **Hamburger Menu Navigation** - Easy access to all features
 - **Position History** - Track device movement over time
 - **Status Indicators** - Live/offline status, battery levels, accuracy metrics
+- **Test Connection** - Testing connection with chirpstack server
 
 ## Tech Stack
 
@@ -33,9 +34,11 @@ lib/
 │ ├── device_detail_screen.dart # Individual device details view
 │ ├── settings_screen.dart # App configuration with forms
 │ └── about_screen.dart # Project information
+| └── app_drawer.dart # Burger menu
 ├── services/
 │ ├── device_service.dart # Device persistence service
 │ └── settings_service.dart # Settings persistence service
+| └── chirpstack_service.dart # Chirpstack persistence service
 ├── models/
 │ └── app_settings.dart # Settings data model
 └── main.dart # App entry point
@@ -79,8 +82,8 @@ flutter run
 4. **Delete Device** - Long-press device or use options menu (with undo support)
 
 ### Settings Configuration
-1. **ChirpStack Server** - Enter server URL (e.g., http://192.168.1.100:8080)
-2. **API Token** - Configure authentication credentials
+1. **ChirpStack Server** - Enter server URL (e.g., http://"Ipv4 of chirpstack server host":8080)
+2. **API Token** - Configured authentication credentials
 3. **MQTT Broker** - Set broker address for real-time updates
 4. **Update Interval** - Adjust position refresh rate (1-30 seconds)
 5. **Notifications** - Enable/disable position update alerts
@@ -104,7 +107,22 @@ flutter run
 
 ## Versioning
 
+### Version 1.4.0 (Week 5 - November 2025)
+
+- ChirpStack Integration - Direct connection to ChirpStack network server via REST API
+- Connection Test Feature - Settings screen now includes real-time server connectivity testing
+- Improved UI Layout - Current position display relocated to bottom of tracking screen near device stats
+- Enhanced Settings - ChirpStack REST API proxy support for LoRaWAN v4 compatibility
+- API Token Authentication - Secure bearer token authentication with ChirpStack server
+- Device Fetching - Automatic device synchronization from ChirpStack applications
+- Better UX - Repositioned position information bar for improved accessibility and visual hierarchy
+
+### Version 1.3.0 (Week 4 Final - October 2025)
+
+-Final adjustments were made to finalize Week 4 Requirements
+
 ### Version 1.2.0 (Week 4 - October 2025)
+
 - Forms and user input validation
 - Persistent storage for devices and settings
 - Device management (add, edit, delete with undo)
