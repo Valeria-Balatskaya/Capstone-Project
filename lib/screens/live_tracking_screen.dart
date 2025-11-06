@@ -11,10 +11,10 @@ class LiveTrackingScreen extends StatefulWidget {
 
 class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
   final DeviceService _deviceService = DeviceService();
-  
+
   List<Map<String, dynamic>> devices = [];
   Map<String, dynamic>? selectedDevice;
-  
+
   double xPosition = 12.5;
   double yPosition = 8.3;
   int gatewayCount = 3;
@@ -55,96 +55,97 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
   }
 
   void _showDeviceSelector() {
-  showModalBottomSheet(
-    context: context,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-    ),
-    builder: (context) => Container(
-      padding: const EdgeInsets.all(20),
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.6,
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade300,
-              borderRadius: BorderRadius.circular(2),
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(20),
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.6,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
-          ),
-          const SizedBox(height: 20),
-          const Text(
-            'Select Device to Track',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
+            const SizedBox(height: 20),
+            const Text(
+              'Select Device to Track',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
-          ),
-          const SizedBox(height: 20),
-          Flexible(
-            child: ListView.builder(
-              shrinkWrap: true,
-              itemCount: devices.length,
-              itemBuilder: (context, index) {
-                final device = devices[index];
-                final isSelected = selectedDevice?['id'] == device['id'];
-                final isOnline = device['status'] == 'online';
-                
-                return ListTile(
-                  leading: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: isOnline ? Colors.green.shade50 : Colors.grey.shade200,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(
-                      Icons.sensors,
-                      color: isOnline ? Colors.green : Colors.grey,
-                    ),
-                  ),
-                  title: Text(
-                    device['name'],
-                    style: TextStyle(
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                    ),
-                  ),
-                  subtitle: Text(
-                    device['status'].toString().toUpperCase(),
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: isOnline ? Colors.green : Colors.grey,
-                    ),
-                  ),
-                  trailing: isSelected
-                      ? Icon(Icons.check_circle, color: Colors.blue.shade800)
-                      : null,
-                  onTap: () {
-                    setState(() {
-                      selectedDevice = device;
-                      _updateTrackingData();
-                    });
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Now tracking ${device['name']}'),
-                        duration: const Duration(seconds: 1),
+            const SizedBox(height: 20),
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: devices.length,
+                itemBuilder: (context, index) {
+                  final device = devices[index];
+                  final isSelected = selectedDevice?['id'] == device['id'];
+                  final isOnline = device['status'] == 'online';
+
+                  return ListTile(
+                    leading: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: isOnline
+                            ? Colors.green.shade50
+                            : Colors.grey.shade200,
+                        borderRadius: BorderRadius.circular(8),
                       ),
-                    );
-                  },
-                );
-              },
+                      child: Icon(
+                        Icons.sensors,
+                        color: isOnline ? Colors.green : Colors.grey,
+                      ),
+                    ),
+                    title: Text(
+                      device['name'],
+                      style: TextStyle(
+                        fontWeight: isSelected
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                      ),
+                    ),
+                    subtitle: Text(
+                      device['status'].toString().toUpperCase(),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isOnline ? Colors.green : Colors.grey,
+                      ),
+                    ),
+                    trailing: isSelected
+                        ? Icon(Icons.check_circle, color: Colors.blue.shade800)
+                        : null,
+                    onTap: () {
+                      setState(() {
+                        selectedDevice = device;
+                        _updateTrackingData();
+                      });
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Now tracking ${device['name']}'),
+                          duration: const Duration(seconds: 1),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
             ),
-          ),
-          const SizedBox(height: 10),
-        ],
+            const SizedBox(height: 10),
+          ],
+        ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   void _refreshPosition() {
     setState(() {
@@ -185,26 +186,16 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                Icons.devices_other,
-                size: 80,
-                color: Colors.grey.shade400,
-              ),
+              Icon(Icons.devices_other, size: 80, color: Colors.grey.shade400),
               const SizedBox(height: 20),
               Text(
                 'No devices available',
-                style: TextStyle(
-                  fontSize: 18,
-                  color: Colors.grey.shade600,
-                ),
+                style: TextStyle(fontSize: 18, color: Colors.grey.shade600),
               ),
               const SizedBox(height: 10),
               Text(
                 'Add devices to start tracking',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey.shade500,
-                ),
+                style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
               ),
             ],
           ),
@@ -266,94 +257,6 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
                                 color: Colors.grey.shade500,
                               ),
                             ),
-                            const SizedBox(height: 30),
-                            Container(
-                              padding: const EdgeInsets.all(20),
-                              margin: const EdgeInsets.symmetric(horizontal: 40),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(15),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.grey.shade400,
-                                    blurRadius: 10,
-                                    offset: const Offset(0, 3),
-                                  ),
-                                ],
-                              ),
-                              child: Column(
-                                children: [
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(
-                                        Icons.location_on,
-                                        color: Colors.blue.shade800,
-                                        size: 30,
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Text(
-                                        'Current Position',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 18,
-                                          color: Colors.blue.shade800,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 15),
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                                    children: [
-                                      Column(
-                                        children: [
-                                          Text(
-                                            'X',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.grey.shade600,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 5),
-                                          Text(
-                                            '${xPosition.toStringAsFixed(2)} m',
-                                            style: const TextStyle(
-                                              fontSize: 20,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      Container(
-                                        height: 40,
-                                        width: 1,
-                                        color: Colors.grey.shade300,
-                                      ),
-                                      Column(
-                                        children: [
-                                          Text(
-                                            'Y',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.grey.shade600,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 5),
-                                          Text(
-                                            '${yPosition.toStringAsFixed(2)} m',
-                                            style: const TextStyle(
-                                              fontSize: 20,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
                           ],
                         ),
                       ),
@@ -404,6 +307,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
                   ),
                 ),
               ),
+
               Container(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
                 decoration: BoxDecoration(
@@ -416,37 +320,115 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
                     ),
                   ],
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                child: Column(
                   children: [
-                    _buildQuickInfo(
-                      icon: Icons.router,
-                      label: 'Devices',
-                      value: '${devices.length}',
-                      color: Colors.green,
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.blue.shade200,
+                          width: 1,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.location_on,
+                            color: Colors.blue.shade800,
+                            size: 24,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Current Position',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                              color: Colors.blue.shade800,
+                            ),
+                          ),
+                          const SizedBox(width: 20),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'X',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                              Text(
+                                '${xPosition.toStringAsFixed(2)} m',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(width: 20),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Y',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                              Text(
+                                '${yPosition.toStringAsFixed(2)} m',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
-                    _buildDivider(),
-                    _buildQuickInfo(
-                      icon: Icons.gps_fixed,
-                      label: 'Accuracy',
-                      value: '${accuracy.toStringAsFixed(1)}m',
-                      color: Colors.orange,
-                    ),
-                    _buildDivider(),
-                    _buildQuickInfo(
-                      icon: Icons.update,
-                      label: 'Updated',
-                      value: 'Just now',
-                      color: Colors.blue,
+
+                    const SizedBox(height: 12),
+
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        _buildQuickInfo(
+                          icon: Icons.router,
+                          label: 'Devices',
+                          value: '${devices.length}',
+                          color: Colors.green,
+                        ),
+                        _buildDivider(),
+                        _buildQuickInfo(
+                          icon: Icons.gps_fixed,
+                          label: 'Accuracy',
+                          value: '${accuracy.toStringAsFixed(1)}m',
+                          color: Colors.orange,
+                        ),
+                        _buildDivider(),
+                        _buildQuickInfo(
+                          icon: Icons.update,
+                          label: 'Updated',
+                          value: 'Just now',
+                          color: Colors.blue,
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
             ],
           ),
+
           Positioned(
             right: 16,
-            bottom: 115,
+            bottom: 160,
             child: FloatingActionButton(
               onPressed: _refreshPosition,
               backgroundColor: Colors.blue.shade800,
@@ -479,20 +461,13 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
         ),
         Text(
           label,
-          style: TextStyle(
-            fontSize: 11,
-            color: Colors.grey.shade600,
-          ),
+          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
         ),
       ],
     );
   }
 
   Widget _buildDivider() {
-    return Container(
-      height: 40,
-      width: 1,
-      color: Colors.grey.shade300,
-    );
+    return Container(height: 40, width: 1, color: Colors.grey.shade300);
   }
 }

@@ -85,7 +85,8 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
           ),
           ElevatedButton(
             onPressed: () async {
-              if (idController.text.isNotEmpty && nameController.text.isNotEmpty) {
+              if (idController.text.isNotEmpty &&
+                  nameController.text.isNotEmpty) {
                 setState(() {
                   devices.add({
                     'id': idController.text,
@@ -164,7 +165,8 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
           ),
           ElevatedButton(
             onPressed: () async {
-              if (idController.text.isNotEmpty && nameController.text.isNotEmpty) {
+              if (idController.text.isNotEmpty &&
+                  nameController.text.isNotEmpty) {
                 setState(() {
                   devices[index]['id'] = idController.text;
                   devices[index]['name'] = nameController.text;
@@ -189,7 +191,7 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
 
   void _showDeleteConfirmation(int index) {
     final deviceName = devices[index]['name'];
-    
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -247,7 +249,7 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
 
   void _showDeviceOptions(int index) {
     final device = devices[index];
-    
+
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -269,19 +271,14 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
             const SizedBox(height: 20),
             Text(
               device['name'],
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 10),
-            if (device['description'] != null && device['description'].isNotEmpty)
+            if (device['description'] != null &&
+                device['description'].isNotEmpty)
               Text(
                 device['description'],
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey.shade600,
-                ),
+                style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
                 textAlign: TextAlign.center,
               ),
             const SizedBox(height: 20),
@@ -341,6 +338,24 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
         foregroundColor: Colors.white,
         actions: [
           IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh from ChirpStack',
+            onPressed: () async {
+              setState(() => _isLoading = true);
+              await _loadDevices();
+              setState(() => _isLoading = false);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Devices refreshed from ChirpStack'),
+                    backgroundColor: Colors.green,
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              }
+            },
+          ),
+          IconButton(
             icon: const Icon(Icons.home),
             tooltip: 'Go to Main Screen',
             onPressed: () {
@@ -373,18 +388,12 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
                   const SizedBox(height: 20),
                   Text(
                     'No devices found',
-                    style: TextStyle(
-                      fontSize: 18,
-                      color: Colors.grey.shade600,
-                    ),
+                    style: TextStyle(fontSize: 18, color: Colors.grey.shade600),
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    'Tap + to add a device',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey.shade500,
-                    ),
+                    'Tap 🔄 to refresh from ChirpStack',
+                    style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
                   ),
                 ],
               ),
@@ -407,9 +416,7 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
       elevation: 3,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ListTile(
         contentPadding: const EdgeInsets.all(15),
         leading: Container(
@@ -426,10 +433,7 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
         ),
         title: Text(
           device['name'],
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 16,
-          ),
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -439,18 +443,11 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
             const SizedBox(height: 5),
             Row(
               children: [
-                Icon(
-                  Icons.access_time,
-                  size: 14,
-                  color: Colors.grey.shade600,
-                ),
+                Icon(Icons.access_time, size: 14, color: Colors.grey.shade600),
                 const SizedBox(width: 5),
                 Text(
                   'Last seen: ${device['lastSeen']}',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade600,
-                  ),
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 ),
               ],
             ),
@@ -473,19 +470,12 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
                   ),
                 ),
                 const SizedBox(width: 15),
-                Icon(
-                  Icons.gps_fixed,
-                  size: 14,
-                  color: Colors.grey.shade600,
-                ),
+                Icon(Icons.gps_fixed, size: 14, color: Colors.grey.shade600),
                 const SizedBox(width: 5),
                 Flexible(
                   child: Text(
                     'Accuracy: ${device['accuracy']}m',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade600,
-                    ),
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                   ),
                 ),
               ],

@@ -49,18 +49,12 @@ class AboutScreen extends StatelessWidget {
             const SizedBox(height: 20),
             const Text(
               'LoraTrack',
-              style: TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
-              ),
+              style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 5),
             Text(
-              'Version 1.3.0',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade600,
-              ),
+              'Version 1.4.0',
+              style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
             ),
             const SizedBox(height: 30),
             Card(
@@ -80,8 +74,8 @@ class AboutScreen extends StatelessWidget {
                     const SizedBox(height: 15),
                     const Text(
                       'LoraTrack is a capstone project that demonstrates '
-                          'indoor position measurement using LoRaWAN technology '
-                          'without GPS dependency.',
+                      'indoor position measurement using LoRaWAN technology '
+                      'without GPS dependency.',
                       style: TextStyle(fontSize: 14, height: 1.5),
                     ),
                     const SizedBox(height: 15),
@@ -91,7 +85,9 @@ class AboutScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     _buildFeatureItem('RSSI-based triangulation positioning'),
-                    _buildFeatureItem('Outdoor gateways tracking indoor devices'),
+                    _buildFeatureItem(
+                      'Outdoor gateways tracking indoor devices',
+                    ),
                     _buildFeatureItem('Real-time position visualization'),
                     _buildFeatureItem('ChirpStack network server integration'),
                     _buildFeatureItem('MQTT real-time data communication'),
@@ -128,10 +124,7 @@ class AboutScreen extends StatelessWidget {
             const SizedBox(height: 30),
             Text(
               '© 2025 LoraTrack Team',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey.shade600,
-              ),
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
             ),
           ],
         ),
@@ -146,9 +139,7 @@ class AboutScreen extends StatelessWidget {
         children: [
           Icon(Icons.check_circle, size: 16, color: Colors.green.shade600),
           const SizedBox(width: 10),
-          Expanded(
-            child: Text(text, style: const TextStyle(fontSize: 14)),
-          ),
+          Expanded(child: Text(text, style: const TextStyle(fontSize: 14))),
         ],
       ),
     );
@@ -162,17 +153,11 @@ class AboutScreen extends StatelessWidget {
         children: [
           Text(
             label,
-            style: const TextStyle(
-              fontWeight: FontWeight.w500,
-              fontSize: 14,
-            ),
+            style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
           ),
           Text(
             value,
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey.shade700,
-            ),
+            style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
           ),
         ],
       ),

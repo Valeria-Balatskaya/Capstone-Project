@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/app_settings.dart';
 import '../services/settings_service.dart';
+import '../services/chirpstack_service.dart';
 import 'app_drawer.dart';
 import 'live_tracking_screen.dart';
 
@@ -14,15 +15,17 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final _formKey = GlobalKey<FormState>();
   final _settingsService = SettingsService();
-  
+  final _chirpStackService = ChirpStackService();
+
   final _serverUrlController = TextEditingController();
   final _apiTokenController = TextEditingController();
   final _mqttBrokerController = TextEditingController();
-  
+
   bool _notificationsEnabled = true;
-  double _updateInterval = 5.0; 
+  double _updateInterval = 5.0;
   bool _isLoading = true;
   bool _isSaving = false;
+  bool _isTesting = false;
 
   @override
   void initState() {
@@ -32,9 +35,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadSettings() async {
     setState(() => _isLoading = true);
-    
+
     final settings = await _settingsService.loadSettings();
-    
+
     setState(() {
       _serverUrlController.text = settings.serverUrl;
       _apiTokenController.text = settings.apiToken;
@@ -72,6 +75,45 @@ class _SettingsScreenState extends State<SettingsScreen> {
           duration: Duration(seconds: 2),
         ),
       );
+    }
+  }
+
+  Future<void> _testConnection() async {
+    if (!_formKey.currentState!.validate()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please fill in all required fields correctly'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isTesting = true);
+
+    final result = await _chirpStackService.testConnection(
+      serverUrl: _serverUrlController.text.trim(),
+      apiToken: _apiTokenController.text.trim(),
+    );
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(
+                result['success'] ? Icons.check_circle : Icons.error,
+                color: Colors.white,
+              ),
+              const SizedBox(width: 10),
+              Expanded(child: Text(result['message'])),
+            ],
+          ),
+          backgroundColor: result['success'] ? Colors.green : Colors.red,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+      setState(() => _isTesting = false);
     }
   }
 
@@ -124,7 +166,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
             _buildSectionTitle('Server Configuration'),
             const SizedBox(height: 10),
-            
+
             TextFormField(
               controller: _serverUrlController,
               decoration: InputDecoration(
@@ -141,15 +183,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 if (value == null || value.isEmpty) {
                   return 'Please enter server URL';
                 }
-                if (!value.startsWith('http://') && !value.startsWith('https://')) {
+                if (!value.startsWith('http://') &&
+                    !value.startsWith('https://')) {
                   return 'URL must start with http:// or https://';
                 }
                 return null;
               },
             ),
-            
+
             const SizedBox(height: 20),
-            
+
             TextFormField(
               controller: _apiTokenController,
               decoration: InputDecoration(
@@ -172,9 +215,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 return null;
               },
             ),
-            
+
             const SizedBox(height: 20),
-            
+
             TextFormField(
               controller: _mqttBrokerController,
               decoration: InputDecoration(
@@ -194,12 +237,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 return null;
               },
             ),
-            
+
             const SizedBox(height: 30),
-            
+
             _buildSectionTitle('Tracking Settings'),
             const SizedBox(height: 10),
-            
+
             Card(
               elevation: 2,
               shape: RoundedRectangleBorder(
@@ -252,9 +295,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
             ),
-            
+
             const SizedBox(height: 20),
-            
+
             Card(
               elevation: 2,
               shape: RoundedRectangleBorder(
@@ -273,9 +316,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
             ),
-            
+
             const SizedBox(height: 30),
-            
+
             SizedBox(
               height: 50,
               child: ElevatedButton(
@@ -305,23 +348,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
               ),
             ),
-            
+
             const SizedBox(height: 20),
-            
-            OutlinedButton.icon(
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Connection test - Coming in Week 8'),
-                    backgroundColor: Colors.orange,
+
+            SizedBox(
+              height: 50,
+              child: OutlinedButton.icon(
+                onPressed: _isTesting ? null : _testConnection,
+                icon: _isTesting
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.wifi_tethering),
+                label: Text(
+                  _isTesting ? 'Testing Connection...' : 'Test Connection',
+                ),
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(
+                    color: _isTesting ? Colors.grey : Colors.blue.shade800,
                   ),
-                );
-              },
-              icon: const Icon(Icons.wifi_tethering),
-              label: const Text('Test Connection'),
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 15),
-                side: BorderSide(color: Colors.blue.shade800),
+                ),
               ),
             ),
           ],
