@@ -1,0 +1,113 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: lora-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: chirpstack
+      POSTGRES_USER: chirpstack
+      POSTGRES_PASSWORD: chirpstack
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./config/postgres/init.sql:/docker-entrypoint-initdb.d/001-init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chirpstack"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: lora-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: lora-mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./config/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_logs:/mosquitto/log
+
+  influxdb:
+    image: influxdb:2-alpine
+    container_name: lora-influxdb
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    environment:
+      INFLUXDB_DB: lora_positioning
+      INFLUXDB_ADMIN_USER: admin
+      INFLUXDB_ADMIN_PASSWORD: admin123
+      INFLUXDB_HTTP_AUTH_ENABLED: "false"
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+
+  chirpstack:
+    image: chirpstack/chirpstack:4
+    container_name: lora-chirpstack
+    restart: unless-stopped
+    # THIS IS THE FIX - Tell ChirpStack where the config is
+    command: -c /etc/chirpstack
+    ports:
+      - "8080:8080"
+    environment:
+      POSTGRESQL__DSN: postgres://chirpstack:chirpstack@postgres/chirpstack?sslmode=disable
+      REDIS__SERVERS: redis://redis:6379
+      NETWORK__NET_ID: "000000"
+    volumes:
+      - ./config/chirpstack:/etc/chirpstack
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  chirpstack-gateway-bridge:
+    image: chirpstack/chirpstack-gateway-bridge:4
+    container_name: lora-gateway-bridge
+    restart: unless-stopped
+    ports:
+      - "1700:1700/udp"
+    environment:
+      INTEGRATION__MQTT__EVENT_TOPIC_TEMPLATE: eu868/gateway/{{ .GatewayID }}/event/{{ .EventType }}
+      INTEGRATION__MQTT__STATE_TOPIC_TEMPLATE: eu868/gateway/{{ .GatewayID }}/state/{{ .StateType }}
+      INTEGRATION__MQTT__COMMAND_TOPIC_TEMPLATE: eu868/gateway/{{ .GatewayID }}/command/#
+      INTEGRATION__MQTT__SERVER: tcp://mosquitto:1883
+      BACKEND__SEMTECH_UDP__UDP_BIND: 0.0.0.0:1700
+    depends_on:
+      - mosquitto
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: lora-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ADMIN_USER: admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - influxdb
+
+volumes:
+  postgres_data:
+  redis_data:
+  influxdb_data:
+  mosquitto_data:
+  mosquitto_logs:
+  grafana_data:
+
+networks:
+  default:
+    name: lora_network

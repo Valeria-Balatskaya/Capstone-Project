@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+lora_venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Data files
+data/
+*.db
+*.sqlite
+
+# Docker volumes
+postgres_data/
+redis_data/
+influxdb_data/
+mosquitto_data/
+mosquitto_logs/
+grafana_data/
+
+# Temporary files
+*.bak
+*.tmp
+*.sql.bak
+init_data.sql
+update_data.sql
+verify_data.sql
+
+# Environment
+.env
+.env.local
+.env*.local
