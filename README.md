@@ -1,6 +1,6 @@
 # LoraTrack
 
-**Version 1.4.0**
+**Version 1.5.0**
 
 A Flutter mobile application for real-time indoor position tracking using LoRaWAN technology without GPS dependency.
 
@@ -16,6 +16,7 @@ LoraTrack is a mobile application for Capstone Module project that demonstrates 
 - **Hamburger Menu Navigation** - Easy access to all features
 - **Position History** - Track device movement over time
 - **Status Indicators** - Live/offline status, battery levels, accuracy metrics
+- **Phone GPS Alignment** - Pull handset GPS to compare with LoRaWAN-derived position
 - **Test Connection** - Testing connection with chirpstack server
 
 ## Tech Stack
@@ -106,6 +107,12 @@ flutter run
 4. Kuzma Martysiuk
 
 ## Versioning
+
+### Version 1.5.0 (Week 6 - November 2025)
+
+- GPS Sensor Integration - Uses the handset's location sensor (Geolocator) with runtime permissions
+- Phone vs LoRa Comparison - Live tracking screen surfaces phone latitude/longitude alongside LoRa stats
+- Platform Permissions - Adds Android/iOS location descriptions to match store requirements
 
 ### Version 1.4.0 (Week 5 - November 2025)
 

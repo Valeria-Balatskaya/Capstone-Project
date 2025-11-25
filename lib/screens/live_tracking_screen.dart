@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'app_drawer.dart';
 import '../services/device_service.dart';
+import '../services/location_service.dart';
+import 'package:geolocator/geolocator.dart';
 
 class LiveTrackingScreen extends StatefulWidget {
   const LiveTrackingScreen({super.key});
@@ -11,9 +13,13 @@ class LiveTrackingScreen extends StatefulWidget {
 
 class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
   final DeviceService _deviceService = DeviceService();
+  final LocationService _locationService = LocationService();
 
   List<Map<String, dynamic>> devices = [];
   Map<String, dynamic>? selectedDevice;
+  Position? _gpsPosition;
+  String? _gpsError;
+  bool _isFetchingGps = false;
 
   double xPosition = 12.5;
   double yPosition = 8.3;
@@ -159,6 +165,43 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
         duration: Duration(seconds: 1),
       ),
     );
+  }
+
+  Future<void> _readPhoneLocation() async {
+    setState(() {
+      _isFetchingGps = true;
+      _gpsError = null;
+    });
+    final reading = await _locationService.getCurrentLocation();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isFetchingGps = false;
+      if (reading.hasFix) {
+        _gpsPosition = reading.position;
+        _gpsError = null;
+      } else {
+        _gpsError = reading.error ?? 'Unable to read GPS';
+      }
+    });
+    if (_gpsError != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_gpsError!),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Phone GPS updated'),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 1),
+        ),
+      );
+    }
   }
 
   @override
@@ -420,6 +463,8 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 16),
+                    _buildGpsCard(),
                   ],
                 ),
               ),
@@ -428,7 +473,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
 
           Positioned(
             right: 16,
-            bottom: 160,
+            bottom: 220,
             child: FloatingActionButton(
               onPressed: _refreshPosition,
               backgroundColor: Colors.blue.shade800,
@@ -469,5 +514,107 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
 
   Widget _buildDivider() {
     return Container(height: 40, width: 1, color: Colors.grey.shade300);
+  }
+
+  Widget _buildGpsCard() {
+    final latitude = _gpsPosition?.latitude.toStringAsFixed(6) ?? '--';
+    final longitude = _gpsPosition?.longitude.toStringAsFixed(6) ?? '--';
+    final accuracyText = _gpsPosition?.accuracy.toStringAsFixed(1) ?? '--';
+    final timestamp = _gpsPosition != null
+        ? _gpsPosition!.timestamp.toLocal().toString()
+        : '--';
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Phone GPS Fix',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue.shade800,
+                      ),
+                    ),
+                    Text(
+                      _gpsError ?? 'Compare handset GPS with LoRa position',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ),
+                ElevatedButton(
+                  onPressed: _isFetchingGps ? null : _readPhoneLocation,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue.shade800,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_isFetchingGps)
+                        const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      else
+                        const Icon(Icons.my_location),
+                      const SizedBox(width: 8),
+                      Text(_isFetchingGps ? 'Reading' : 'Read GPS'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(child: _buildGpsStat('Latitude', latitude)),
+                Expanded(child: _buildGpsStat('Longitude', longitude)),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(child: _buildGpsStat('Accuracy', '$accuracyText m')),
+                Expanded(child: _buildGpsStat('Timestamp', timestamp)),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGpsStat(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+        ),
+      ],
+    );
   }
 }
