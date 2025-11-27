@@ -1,0 +1,9 @@
+# Simple Approach - Uses Shared Folder (No MQTT)
+# Only needs pyserial on Windows, scipy on Mac
+
+# Windows (receivers)
+pyserial>=3.5
+
+# Mac (processor) - optional but recommended for accuracy
+numpy>=1.21.0
+scipy>=1.7.0

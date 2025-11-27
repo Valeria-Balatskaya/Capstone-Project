@@ -1,0 +1,13 @@
+# WebSocket Approach - Optimal Balance
+# Real-time streaming with reliability features
+
+# Core
+websockets>=10.0
+paho-mqtt>=1.6.0
+
+# Serial (Windows receivers)
+pyserial>=3.5
+
+# Math (Mac server)
+numpy>=1.21.0
+scipy>=1.7.0

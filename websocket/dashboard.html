@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LoRa Tag Tracker - Live Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #00d4ff;
+        }
+        
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            background: #16213e;
+            padding: 15px 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .status-item {
+            text-align: center;
+        }
+        
+        .status-label {
+            font-size: 12px;
+            color: #888;
+            text-transform: uppercase;
+        }
+        
+        .status-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #00d4ff;
+        }
+        
+        .status-value.connected {
+            color: #00ff88;
+        }
+        
+        .status-value.disconnected {
+            color: #ff4444;
+        }
+        
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 300px;
+            gap: 20px;
+        }
+        
+        .map-container {
+            background: #16213e;
+            border-radius: 10px;
+            padding: 20px;
+            position: relative;
+        }
+        
+        .map-title {
+            margin-bottom: 15px;
+            color: #00d4ff;
+        }
+        
+        #map {
+            width: 100%;
+            height: 500px;
+            background: #0f0f23;
+            border-radius: 8px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .grid-line {
+            position: absolute;
+            background: rgba(255,255,255,0.05);
+        }
+        
+        .grid-line.horizontal {
+            width: 100%;
+            height: 1px;
+        }
+        
+        .grid-line.vertical {
+            width: 1px;
+            height: 100%;
+        }
+        
+        .receiver {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            transform: translate(-50%, -50%);
+            z-index: 10;
+        }
+        
+        .receiver svg {
+            width: 100%;
+            height: 100%;
+            fill: #4a9eff;
+        }
+        
+        .receiver-label {
+            position: absolute;
+            top: 35px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 12px;
+            font-weight: bold;
+            white-space: nowrap;
+            color: #4a9eff;
+        }
+        
+        .tag {
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            background: #ff4444;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 20;
+            box-shadow: 0 0 20px rgba(255, 68, 68, 0.6);
+            transition: left 0.3s ease, top 0.3s ease;
+        }
+        
+        .tag::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 8px;
+            height: 8px;
+            background: white;
+            border-radius: 50%;
+        }
+        
+        .trail {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            background: rgba(255, 68, 68, 0.3);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 15;
+        }
+        
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        
+        .panel {
+            background: #16213e;
+            border-radius: 10px;
+            padding: 20px;
+        }
+        
+        .panel-title {
+            font-size: 14px;
+            color: #888;
+            text-transform: uppercase;
+            margin-bottom: 15px;
+        }
+        
+        .position-display {
+            font-size: 32px;
+            font-weight: bold;
+            color: #00d4ff;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        
+        .position-label {
+            text-align: center;
+            color: #888;
+            font-size: 14px;
+        }
+        
+        .receiver-list {
+            list-style: none;
+        }
+        
+        .receiver-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .receiver-item:last-child {
+            border-bottom: none;
+        }
+        
+        .receiver-name {
+            font-weight: bold;
+        }
+        
+        .receiver-rssi {
+            color: #00d4ff;
+        }
+        
+        .log-container {
+            max-height: 150px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            background: #0f0f23;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        
+        .log-entry {
+            padding: 2px 0;
+            color: #888;
+        }
+        
+        .log-entry.position {
+            color: #00ff88;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: translate(-50%, -50%) scale(1); }
+            50% { transform: translate(-50%, -50%) scale(1.2); }
+        }
+        
+        .tag.active {
+            animation: pulse 1s infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📍 LoRa Tag Tracker</h1>
+        
+        <div class="status-bar">
+            <div class="status-item">
+                <div class="status-label">Connection</div>
+                <div class="status-value" id="connectionStatus">Connecting...</div>
+            </div>
+            <div class="status-item">
+                <div class="status-label">Receivers</div>
+                <div class="status-value" id="receiverCount">0</div>
+            </div>
+            <div class="status-item">
+                <div class="status-label">Messages</div>
+                <div class="status-value" id="messageCount">0</div>
+            </div>
+            <div class="status-item">
+                <div class="status-label">Positions</div>
+                <div class="status-value" id="positionCount">0</div>
+            </div>
+        </div>
+        
+        <div class="main-content">
+            <div class="map-container">
+                <h2 class="map-title">Live Tracking Map</h2>
+                <div id="map">
+                    <div class="tag" id="tag"></div>
+                </div>
+            </div>
+            
+            <div class="sidebar">
+                <div class="panel">
+                    <div class="panel-title">Tag Position</div>
+                    <div class="position-display" id="positionDisplay">-- , --</div>
+                    <div class="position-label">X, Y (meters)</div>
+                </div>
+                
+                <div class="panel">
+                    <div class="panel-title">Receivers</div>
+                    <ul class="receiver-list" id="receiverList">
+                        <li class="receiver-item">
+                            <span>Waiting for data...</span>
+                        </li>
+                    </ul>
+                </div>
+                
+                <div class="panel">
+                    <div class="panel-title">Event Log</div>
+                    <div class="log-container" id="logContainer"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const WS_URL = `ws://${window.location.hostname}:8765/dashboard`;
+        const ROOM_WIDTH = 10;  // meters
+        const ROOM_HEIGHT = 10; // meters
+        
+        // State
+        let ws = null;
+        let trail = [];
+        const MAX_TRAIL = 20;
+        
+        // DOM elements
+        const map = document.getElementById('map');
+        const tag = document.getElementById('tag');
+        const connectionStatus = document.getElementById('connectionStatus');
+        const receiverCount = document.getElementById('receiverCount');
+        const messageCount = document.getElementById('messageCount');
+        const positionCount = document.getElementById('positionCount');
+        const positionDisplay = document.getElementById('positionDisplay');
+        const receiverList = document.getElementById('receiverList');
+        const logContainer = document.getElementById('logContainer');
+        
+        // Initialize grid
+        function initGrid() {
+            for (let i = 1; i < 10; i++) {
+                const hLine = document.createElement('div');
+                hLine.className = 'grid-line horizontal';
+                hLine.style.top = `${i * 10}%`;
+                map.appendChild(hLine);
+                
+                const vLine = document.createElement('div');
+                vLine.className = 'grid-line vertical';
+                vLine.style.left = `${i * 10}%`;
+                map.appendChild(vLine);
+            }
+        }
+        
+        // Convert position to map coordinates
+        function posToMap(x, y) {
+            const mapRect = map.getBoundingClientRect();
+            const px = (x / ROOM_WIDTH) * 100;
+            const py = (1 - y / ROOM_HEIGHT) * 100; // Flip Y axis
+            return { left: `${px}%`, top: `${py}%` };
+        }
+        
+        // Update tag position
+        function updateTagPosition(x, y) {
+            const pos = posToMap(x, y);
+            tag.style.left = pos.left;
+            tag.style.top = pos.top;
+            tag.classList.add('active');
+            
+            positionDisplay.textContent = `${x.toFixed(2)} , ${y.toFixed(2)}`;
+            
+            // Add to trail
+            addTrailPoint(x, y);
+        }
+        
+        // Add trail point
+        function addTrailPoint(x, y) {
+            const pos = posToMap(x, y);
+            const point = document.createElement('div');
+            point.className = 'trail';
+            point.style.left = pos.left;
+            point.style.top = pos.top;
+            map.appendChild(point);
+            
+            trail.push(point);
+            if (trail.length > MAX_TRAIL) {
+                const old = trail.shift();
+                old.remove();
+            }
+            
+            // Fade older points
+            trail.forEach((p, i) => {
+                p.style.opacity = (i + 1) / trail.length * 0.5;
+            });
+        }
+        
+        // Update receivers on map
+        function updateReceivers(receivers) {
+            // Remove old receiver markers
+            document.querySelectorAll('.receiver').forEach(el => el.remove());
+            
+            let html = '';
+            Object.entries(receivers).forEach(([id, data]) => {
+                // Add marker to map
+                const pos = posToMap(data.position.x, data.position.y);
+                const marker = document.createElement('div');
+                marker.className = 'receiver';
+                marker.style.left = pos.left;
+                marker.style.top = pos.top;
+                marker.innerHTML = `
+                    <svg viewBox="0 0 24 24">
+                        <path d="M12 2L2 22h20L12 2z"/>
+                    </svg>
+                    <span class="receiver-label">${id}</span>
+                `;
+                map.appendChild(marker);
+                
+                // Add to list
+                html += `
+                    <li class="receiver-item">
+                        <span class="receiver-name">${id} (${data.position.x}, ${data.position.y})</span>
+                        <span class="receiver-rssi">${data.rssi || '--'} dBm</span>
+                    </li>
+                `;
+            });
+            
+            receiverList.innerHTML = html || '<li class="receiver-item"><span>No receivers</span></li>';
+            receiverCount.textContent = Object.keys(receivers).length;
+        }
+        
+        // Add log entry
+        function addLog(message, isPosition = false) {
+            const entry = document.createElement('div');
+            entry.className = 'log-entry' + (isPosition ? ' position' : '');
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logContainer.insertBefore(entry, logContainer.firstChild);
+            
+            // Limit log entries
+            while (logContainer.children.length > 50) {
+                logContainer.removeChild(logContainer.lastChild);
+            }
+        }
+        
+        // Connect to WebSocket
+        function connect() {
+            ws = new WebSocket(WS_URL);
+            
+            ws.onopen = () => {
+                connectionStatus.textContent = 'Connected';
+                connectionStatus.classList.remove('disconnected');
+                connectionStatus.classList.add('connected');
+                addLog('Connected to server');
+            };
+            
+            ws.onclose = () => {
+                connectionStatus.textContent = 'Disconnected';
+                connectionStatus.classList.remove('connected');
+                connectionStatus.classList.add('disconnected');
+                addLog('Disconnected, reconnecting...');
+                setTimeout(connect, 3000);
+            };
+            
+            ws.onerror = (error) => {
+                addLog('WebSocket error');
+            };
+            
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    
+                    if (data.type === 'init' || data.type === 'position') {
+                        if (data.position) {
+                            updateTagPosition(data.position.x, data.position.y);
+                            if (data.type === 'position') {
+                                addLog(`Position: (${data.position.x}, ${data.position.y})`, true);
+                            }
+                        }
+                        if (data.receivers) {
+                            updateReceivers(data.receivers);
+                        }
+                        if (data.stats) {
+                            messageCount.textContent = data.stats.messages || 0;
+                            positionCount.textContent = data.stats.positions || 0;
+                        }
+                    }
+                } catch (e) {
+                    console.error('Parse error:', e);
+                }
+            };
+        }
+        
+        // Initialize
+        initGrid();
+        connect();
+    </script>
+</body>
+</html>
