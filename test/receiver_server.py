@@ -1,23 +1,27 @@
 #!/usr/bin/env python3
 """
-TEST: Mac Receiver + WebSocket Server
-======================================
-Runs on Mac laptop with receiver board connected via USB.
-- Reads LoRa packets from serial port
-- Runs WebSocket server for remote clients
-- Serves dashboard endpoint for browser viewing
+LoRa Receiver + WebSocket Server
+=================================
+Runs on Mac with receiver board connected via USB.
+- Configures radio with AT+TCONF and AT+TRX commands
+- Parses "RssiValue=-45 dBm, SnrValue=12dB" format
+- Streams data via WebSocket to remote clients
+- Also saves to local CSV file
 
 Usage:
-    python receiver_server.py --port /dev/cu.usbserial-XXXX
-    python receiver_server.py --port /dev/cu.usbmodem-XXXX --baud 9600
+    python receiver_server.py --port /dev/cu.usbserial-1110
+    python receiver_server.py --port /dev/cu.usbserial-1110 --receiver-id B
 """
 
 import asyncio
 import argparse
+import csv
 import json
+import os
 import re
 import signal
 import sys
+import time
 from datetime import datetime
 from typing import Set, Optional
 
@@ -41,40 +45,37 @@ dashboard_clients: Set = set()
 data_clients: Set = set()
 serial_port: Optional[serial.Serial] = None
 running = True
+start_time = None
+csv_writer = None
+csv_file = None
+receiver_id = "A"
+
+# Pattern matching your actual LoRa output format
+# Example: "RssiValue=-45 dBm, SnrValue=12dB"
+RSSI_PATTERN = re.compile(r"RssiValue=(-?\d+)\s*dBm,\s*SnrValue=(-?\d+)dB")
 
 
 def parse_lora_packet(line: str) -> Optional[dict]:
     """
-    Parse LoRa packet from Wio-E5 format.
+    Parse LoRa packet from your board's format.
     
-    Expected format: +RX "HEXDATA",-45,12
-    Where HEXDATA contains the tag ID as hex-encoded string.
+    Expected format: RssiValue=-45 dBm, SnrValue=12dB
     """
-    # Pattern: +RX "hex_data",rssi,snr
-    match = re.match(r'\+RX\s+"([0-9A-Fa-f]+)",(-?\d+),(\d+)', line.strip())
+    match = RSSI_PATTERN.search(line)
     if not match:
         return None
     
-    hex_payload = match.group(1)
-    rssi = int(match.group(2))
-    snr = int(match.group(3))
-    
-    # Try to decode hex payload as ASCII (tag ID)
-    try:
-        tag_id = bytes.fromhex(hex_payload).decode('ascii', errors='replace')
-        # Clean up non-printable characters
-        tag_id = ''.join(c if c.isprintable() else '' for c in tag_id).strip()
-        if not tag_id:
-            tag_id = f"TAG_{hex_payload[:8]}"
-    except Exception:
-        tag_id = f"TAG_{hex_payload[:8]}"
+    rssi = int(match.group(1))
+    snr = int(match.group(2))
+    elapsed = time.time() - start_time if start_time else 0
     
     return {
         "timestamp": datetime.now().isoformat(),
-        "tag_id": tag_id,
+        "timestamp_s": round(elapsed, 3),
+        "receiver_id": receiver_id,
         "rssi": rssi,
         "snr": snr,
-        "raw_payload": hex_payload
+        "raw_line": line
     }
 
 
@@ -82,6 +83,23 @@ def log(message: str):
     """Print timestamped log message."""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{timestamp}] {message}")
+
+
+def setup_csv(output_path: str):
+    """Setup CSV file for local logging."""
+    global csv_writer, csv_file
+    csv_file = open(output_path, "w", newline="")
+    csv_writer = csv.writer(csv_file)
+    csv_writer.writerow(["timestamp_s", "rssi_dbm", "snr_db"])
+    log(f"CSV logging to: {output_path}")
+
+
+def write_csv(data: dict):
+    """Write reading to local CSV file."""
+    global csv_writer, csv_file
+    if csv_writer:
+        csv_writer.writerow([data["timestamp_s"], data["rssi"], data["snr"]])
+        csv_file.flush()
 
 
 async def broadcast_to_clients(data: dict):
@@ -107,11 +125,33 @@ async def broadcast_to_clients(data: dict):
         )
 
 
+def configure_radio(ser: serial.Serial):
+    """Configure radio with AT commands (same as your auto_rx scripts)."""
+    log("Configuring radio...")
+    
+    # Configure radio: AT+TCONF=868300000:14:0:7:4/5:1:1:1:16:0:0:0
+    ser.write(b"AT+TCONF=868300000:14:0:7:4/5:1:1:1:16:0:0:0\r\n")
+    time.sleep(0.5)
+    response = ser.read_all().decode(errors="ignore")
+    if response.strip():
+        log(f"TCONF response: {response.strip()}")
+    
+    # Start receiving: AT+TRX=9999 (receive up to 9999 packets)
+    ser.write(b"AT+TRX=9999\r\n")
+    time.sleep(0.5)
+    response = ser.read_all().decode(errors="ignore")
+    if response.strip():
+        log(f"TRX response: {response.strip()}")
+    
+    log("Radio configured - listening for packets")
+
+
 async def serial_reader():
     """Read from serial port and broadcast to clients."""
-    global serial_port, running
+    global serial_port, running, start_time
     
     loop = asyncio.get_event_loop()
+    start_time = time.time()
     
     while running:
         try:
@@ -135,11 +175,19 @@ async def serial_reader():
             # Parse LoRa packet
             data = parse_lora_packet(line)
             if data:
-                log(f"RX: tag={data['tag_id']}, rssi={data['rssi']}, snr={data['snr']}")
+                elapsed = data["timestamp_s"]
+                rssi = data["rssi"]
+                snr = data["snr"]
+                log(f"RX_{receiver_id}: {elapsed:.3f}s  RSSI={rssi} dBm  SNR={snr} dB")
+                
+                # Save to local CSV
+                write_csv(data)
+                
+                # Broadcast to WebSocket clients
                 await broadcast_to_clients(data)
             else:
                 # Log other serial output for debugging
-                if line and not line.startswith("AT"):
+                if line and not line.startswith("AT") and "OK" not in line:
                     log(f"Serial: {line}")
                     
         except serial.SerialException as e:
@@ -161,7 +209,8 @@ async def handle_websocket(websocket, path):
             # Send welcome message
             await websocket.send(json.dumps({
                 "type": "connected",
-                "message": "Connected to LoRa receiver server",
+                "message": f"Connected to LoRa Receiver {receiver_id}",
+                "receiver_id": receiver_id,
                 "server_time": datetime.now().isoformat()
             }))
             # Keep connection alive
@@ -229,27 +278,33 @@ def open_serial(port: str, baud: int) -> Optional[serial.Serial]:
 
 
 async def main():
-    global serial_port, running
+    global serial_port, running, receiver_id, csv_file
     
     parser = argparse.ArgumentParser(
-        description="LoRa Receiver + WebSocket Server for Mac",
+        description="LoRa Receiver + WebSocket Server",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    python receiver_server.py --port /dev/cu.usbserial-1420
-    python receiver_server.py --port /dev/cu.usbmodem14201 --baud 9600
+    python receiver_server.py --port /dev/cu.usbserial-1110 --receiver-id B
+    python receiver_server.py --port /dev/cu.usbserial-1120 --receiver-id C
     python receiver_server.py --list
+    python receiver_server.py --demo --receiver-id TEST
         """
     )
     parser.add_argument(
         "--port", "-p",
-        help="Serial port for receiver board (e.g., /dev/cu.usbserial-1420)"
+        help="Serial port for receiver board (e.g., /dev/cu.usbserial-1110)"
     )
     parser.add_argument(
         "--baud", "-b",
         type=int,
         default=115200,
         help="Baud rate (default: 115200)"
+    )
+    parser.add_argument(
+        "--receiver-id", "-r",
+        default="A",
+        help="Receiver identifier: A, B, C, etc. (default: A)"
     )
     parser.add_argument(
         "--host",
@@ -263,6 +318,10 @@ Examples:
         help="WebSocket server port (default: 8765)"
     )
     parser.add_argument(
+        "--output", "-o",
+        help="CSV output file (default: rx_<receiver_id>.csv)"
+    )
+    parser.add_argument(
         "--list", "-l",
         action="store_true",
         help="List available serial ports and exit"
@@ -274,28 +333,40 @@ Examples:
     )
     
     args = parser.parse_args()
+    receiver_id = args.receiver_id
+    
+    receiver_id = args.receiver_id
     
     if args.list:
         list_serial_ports()
         return
     
+    # Setup CSV output
+    csv_path = args.output or f"rx_{receiver_id}.csv"
+    setup_csv(csv_path)
+    
     # Demo mode for testing without hardware
     if args.demo:
-        log("Starting in DEMO mode (no serial port required)")
+        log(f"Starting in DEMO mode as Receiver {receiver_id}")
         
         async def demo_data_generator():
             """Generate fake data for testing."""
             import random
+            global start_time
+            start_time = time.time()
             while running:
                 await asyncio.sleep(2)
+                elapsed = time.time() - start_time
                 fake_data = {
                     "timestamp": datetime.now().isoformat(),
-                    "tag_id": f"TAG{random.randint(1, 3):03d}",
+                    "timestamp_s": round(elapsed, 3),
+                    "receiver_id": receiver_id,
                     "rssi": random.randint(-80, -30),
                     "snr": random.randint(5, 15),
-                    "raw_payload": "44454D4F"  # "DEMO" in hex
+                    "raw_line": "DEMO"
                 }
-                log(f"DEMO: tag={fake_data['tag_id']}, rssi={fake_data['rssi']}")
+                log(f"DEMO RX_{receiver_id}: {elapsed:.3f}s  RSSI={fake_data['rssi']} dBm  SNR={fake_data['snr']} dB")
+                write_csv(fake_data)
                 await broadcast_to_clients(fake_data)
         
         # Start WebSocket server
@@ -319,6 +390,9 @@ Examples:
     if not serial_port:
         sys.exit(1)
     
+    # Configure the radio with AT commands
+    configure_radio(serial_port)
+    
     # Handle shutdown gracefully
     def shutdown_handler(sig, frame):
         global running
@@ -332,6 +406,7 @@ Examples:
         # Start WebSocket server
         async with serve(handle_websocket, args.host, args.ws_port):
             log(f"WebSocket server started on ws://{args.host}:{args.ws_port}")
+            log(f"Receiver ID: {receiver_id}")
             log("Endpoints:")
             log("  /data      - Raw JSON data stream")
             log("  /dashboard - For HTML dashboard clients")
@@ -344,6 +419,9 @@ Examples:
         if serial_port and serial_port.is_open:
             serial_port.close()
             log("Serial port closed")
+        if csv_file:
+            csv_file.close()
+            log("CSV file closed")
 
 
 if __name__ == "__main__":

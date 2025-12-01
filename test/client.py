@@ -56,7 +56,7 @@ class LoRaClient:
         self.csv_writer = csv.writer(self.csv_file)
         
         if not file_exists:
-            self.csv_writer.writerow(['timestamp', 'tag_id', 'rssi', 'snr', 'raw_payload'])
+            self.csv_writer.writerow(['timestamp_s', 'receiver_id', 'rssi_dbm', 'snr_db'])
             self.csv_file.flush()
             self.log(f"Created CSV file: {self.output_file}")
         else:
@@ -66,29 +66,21 @@ class LoRaClient:
         """Write reading to CSV file."""
         if self.csv_writer:
             self.csv_writer.writerow([
-                data.get('timestamp', ''),
-                data.get('tag_id', ''),
+                data.get('timestamp_s', ''),
+                data.get('receiver_id', ''),
                 data.get('rssi', ''),
-                data.get('snr', ''),
-                data.get('raw_payload', '')
+                data.get('snr', '')
             ])
             self.csv_file.flush()
     
     def display_reading(self, data: dict):
         """Display a reading in a nice format."""
-        timestamp = data.get('timestamp', '')
-        # Parse and format timestamp
-        try:
-            dt = datetime.fromisoformat(timestamp)
-            time_str = dt.strftime("%H:%M:%S")
-        except:
-            time_str = timestamp[:8] if len(timestamp) >= 8 else timestamp
-        
-        tag_id = data.get('tag_id', 'UNKNOWN')
+        timestamp_s = data.get('timestamp_s', 0)
+        receiver_id = data.get('receiver_id', '?')
         rssi = data.get('rssi', 0)
         snr = data.get('snr', 0)
         
-        # Color coding based on RSSI (won't work in all terminals)
+        # Color coding based on RSSI
         if rssi >= -50:
             signal = "████ Excellent"
         elif rssi >= -60:
@@ -100,7 +92,7 @@ class LoRaClient:
         else:
             signal = "░░░░ Poor"
         
-        print(f"[{time_str}] {tag_id:10} | RSSI: {rssi:4} dBm | SNR: {snr:3} | {signal}")
+        print(f"RX_{receiver_id}: {timestamp_s:8.3f}s | RSSI: {rssi:4} dBm | SNR: {snr:3} dB | {signal}")
         self.readings_count += 1
     
     async def connect_and_listen(self):
@@ -132,7 +124,7 @@ class LoRaClient:
                                 continue
                             
                             # Display and optionally save
-                            if 'tag_id' in data or 'rssi' in data:
+                            if 'receiver_id' in data or 'rssi' in data:
                                 self.display_reading(data)
                                 self.write_csv(data)
                             elif self.verbose:
