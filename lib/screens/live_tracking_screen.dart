@@ -3,6 +3,7 @@ import 'app_drawer.dart';
 import '../services/device_service.dart';
 import '../services/location_service.dart';
 import 'package:geolocator/geolocator.dart';
+import 'map_screen.dart';
 
 class LiveTrackingScreen extends StatefulWidget {
   const LiveTrackingScreen({super.key});
@@ -20,6 +21,9 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
   Position? _gpsPosition;
   String? _gpsError;
   bool _isFetchingGps = false;
+  double? _lat;
+  double? _lon;
+  String? _error;
 
   double xPosition = 12.5;
   double yPosition = 8.3;
@@ -517,8 +521,8 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
   }
 
   Widget _buildGpsCard() {
-    final latitude = _gpsPosition?.latitude.toStringAsFixed(6) ?? '--';
-    final longitude = _gpsPosition?.longitude.toStringAsFixed(6) ?? '--';
+    final latitude = _lat?.toStringAsFixed(6) ?? '--';
+    final longitude = _lon?.toStringAsFixed(6) ?? '--';
     final accuracyText = _gpsPosition?.accuracy.toStringAsFixed(1) ?? '--';
     final timestamp = _gpsPosition != null
         ? _gpsPosition!.timestamp.toLocal().toString()
@@ -555,30 +559,39 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
                   ],
                 ),
                 ElevatedButton(
-                  onPressed: _isFetchingGps ? null : _readPhoneLocation,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue.shade800,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (_isFetchingGps)
-                        const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      else
-                        const Icon(Icons.my_location),
-                      const SizedBox(width: 8),
-                      Text(_isFetchingGps ? 'Reading' : 'Read GPS'),
-                    ],
-                  ),
-                ),
+                  onPressed: () async {
+                    final reading = await LocationService().getCurrentLocation();
+
+                    if (!reading.hasFix) {
+                      setState(() {
+                        _error = reading.error ?? "Could not get location";
+                      });
+                      return;
+                    }
+
+                    final pos = reading.position!;
+
+                    setState(() {
+                      _lat = pos.latitude;
+                      _lon = pos.longitude;
+                      _error = null;
+                    });
+
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => MapScreen(
+                          latitude: pos.latitude,
+                          longitude: pos.longitude,
+                        ),
+                      ),
+                    );
+                  },
+                  child: const Text("Locate"),
+                )
+
+
+                ,
               ],
             ),
             const SizedBox(height: 12),
