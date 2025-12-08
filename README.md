@@ -108,6 +108,10 @@ flutter run
 
 ## Versioning
 
+### Version 1.6.0 (Week 7 - November 2025)
+
+- OpenStreetMap integration - Shows user's GPS location on a map
+
 ### Version 1.5.0 (Week 6 - November 2025)
 
 - GPS Sensor Integration - Uses the handset's location sensor (Geolocator) with runtime permissions
