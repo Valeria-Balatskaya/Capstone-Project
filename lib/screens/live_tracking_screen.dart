@@ -272,7 +272,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
         children: [
           Column(
             children: [
-              Expanded(
+              /*Expanded(
                 flex: 4,
                 child: Container(
                   color: Colors.grey.shade200,
@@ -351,6 +351,39 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
                         ),
                       ),
                     ],
+                  ),
+                ),
+              ),*/
+              Expanded(
+                flex: 4,
+                child: _lat != null && _lon != null
+                    ? MapScreen(latitude: _lat!, longitude: _lon!)
+                    : Container(
+                  color: Colors.grey.shade200,
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.map, size: 80, color: Colors.grey.shade400),
+                        const SizedBox(height: 20),
+                        Text(
+                          'Live Position Map',
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          'Google Maps - Week 7',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey.shade500,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -577,7 +610,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
                       _error = null;
                     });
 
-                    Navigator.push(
+                    /*Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (_) => MapScreen(
@@ -585,7 +618,13 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
                           longitude: pos.longitude,
                         ),
                       ),
-                    );
+                    );*/
+                    setState(() {
+                      _lat = pos.latitude;
+                      _lon = pos.longitude;
+                      _error = null;
+                    });
+
                   },
                   child: const Text("Locate"),
                 )
