@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LoRa Indoor Positioning - Live View</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .header h1 {
+            color: #4ecca3;
+            font-size: 24px;
+        }
+        
+        .status {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 14px;
+            margin-top: 10px;
+        }
+        
+        .status.connected { background: #2d6a4f; }
+        .status.disconnected { background: #9d0208; }
+        
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 300px;
+            gap: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .map-container {
+            background: #16213e;
+            border-radius: 10px;
+            padding: 20px;
+            position: relative;
+        }
+        
+        .map-title {
+            color: #4ecca3;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+        
+        #positionMap {
+            width: 100%;
+            height: 500px;
+            background: #0f0f23;
+            border-radius: 8px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .grid-line {
+            position: absolute;
+            background: #2a2a4a;
+        }
+        
+        .grid-line.horizontal {
+            width: 100%;
+            height: 1px;
+        }
+        
+        .grid-line.vertical {
+            width: 1px;
+            height: 100%;
+        }
+        
+        .receiver {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            background: #4ecca3;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: #1a1a2e;
+            transform: translate(-50%, -50%);
+            z-index: 10;
+        }
+        
+        .receiver-label {
+            position: absolute;
+            color: #4ecca3;
+            font-size: 12px;
+            transform: translate(-50%, 0);
+            top: 45px;
+            white-space: nowrap;
+        }
+        
+        .tag {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            background: #ff6b6b;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 20;
+            transition: all 0.3s ease;
+            box-shadow: 0 0 20px rgba(255, 107, 107, 0.5);
+        }
+        
+        .tag::after {
+            content: '◆';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 14px;
+        }
+        
+        .distance-circle {
+            position: absolute;
+            border: 2px dashed rgba(78, 204, 163, 0.3);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+        }
+        
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        .panel {
+            background: #16213e;
+            border-radius: 10px;
+            padding: 15px;
+        }
+        
+        .panel-title {
+            color: #4ecca3;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 15px;
+        }
+        
+        .position-display {
+            text-align: center;
+            padding: 20px;
+        }
+        
+        .position-coords {
+            font-size: 32px;
+            font-weight: bold;
+            color: #ff6b6b;
+        }
+        
+        .position-unit {
+            color: #888;
+            font-size: 14px;
+        }
+        
+        .receiver-info {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #2a2a4a;
+        }
+        
+        .receiver-info:last-child {
+            border-bottom: none;
+        }
+        
+        .receiver-name {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .receiver-dot {
+            width: 12px;
+            height: 12px;
+            background: #4ecca3;
+            border-radius: 50%;
+        }
+        
+        .receiver-values {
+            text-align: right;
+        }
+        
+        .rssi-value {
+            font-weight: bold;
+            font-size: 16px;
+        }
+        
+        .distance-value {
+            color: #888;
+            font-size: 12px;
+        }
+        
+        .config-input {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .config-input label {
+            font-size: 12px;
+            color: #888;
+        }
+        
+        .config-input input {
+            background: #0f0f23;
+            border: 1px solid #2a2a4a;
+            border-radius: 5px;
+            padding: 8px 12px;
+            color: #eee;
+            font-size: 14px;
+        }
+        
+        .config-input input:focus {
+            outline: none;
+            border-color: #4ecca3;
+        }
+        
+        button {
+            background: #4ecca3;
+            color: #1a1a2e;
+            border: none;
+            border-radius: 5px;
+            padding: 10px 20px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        button:hover {
+            background: #3db892;
+        }
+        
+        .log-container {
+            max-height: 150px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 11px;
+            background: #0f0f23;
+            border-radius: 5px;
+            padding: 10px;
+        }
+        
+        .log-entry {
+            padding: 2px 0;
+            border-bottom: 1px solid #1a1a2e;
+        }
+        
+        .log-entry .time {
+            color: #4ecca3;
+        }
+        
+        .log-entry .receiver {
+            color: #ff6b6b;
+            position: static;
+            display: inline;
+            background: none;
+            width: auto;
+            height: auto;
+            transform: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎯 LoRa Indoor Positioning System</h1>
+        <div id="connectionStatus" class="status disconnected">Disconnected</div>
+    </div>
+    
+    <div class="container">
+        <div class="map-container">
+            <div class="map-title">Position Map</div>
+            <div id="positionMap">
+                <!-- Grid lines will be added by JS -->
+                <!-- Receivers and tag will be positioned by JS -->
+            </div>
+        </div>
+        
+        <div class="sidebar">
+            <div class="panel">
+                <div class="panel-title">Tag Position</div>
+                <div class="position-display">
+                    <div class="position-coords">
+                        (<span id="posX">-</span>, <span id="posY">-</span>)
+                    </div>
+                    <div class="position-unit">meters</div>
+                </div>
+            </div>
+            
+            <div class="panel">
+                <div class="panel-title">Receivers</div>
+                <div id="receiversInfo">
+                    <div class="receiver-info" data-receiver="A">
+                        <div class="receiver-name">
+                            <div class="receiver-dot"></div>
+                            <span>Receiver A (Mac)</span>
+                        </div>
+                        <div class="receiver-values">
+                            <div class="rssi-value" id="rssiA">-- dBm</div>
+                            <div class="distance-value" id="distA">-- m</div>
+                        </div>
+                    </div>
+                    <div class="receiver-info" data-receiver="B">
+                        <div class="receiver-name">
+                            <div class="receiver-dot"></div>
+                            <span>Receiver B (Win1)</span>
+                        </div>
+                        <div class="receiver-values">
+                            <div class="rssi-value" id="rssiB">-- dBm</div>
+                            <div class="distance-value" id="distB">-- m</div>
+                        </div>
+                    </div>
+                    <div class="receiver-info" data-receiver="C">
+                        <div class="receiver-name">
+                            <div class="receiver-dot"></div>
+                            <span>Receiver C (Win2)</span>
+                        </div>
+                        <div class="receiver-values">
+                            <div class="rssi-value" id="rssiC">-- dBm</div>
+                            <div class="distance-value" id="distC">-- m</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="panel">
+                <div class="panel-title">Configuration</div>
+                <div class="config-input">
+                    <label>WebSocket Server URL</label>
+                    <input type="text" id="serverUrl" value="ws://localhost:8765/dashboard" placeholder="ws://IP:8765/dashboard">
+                    <label>RSSI at 1m (dBm)</label>
+                    <input type="number" id="rssi1m" value="-45">
+                    <label>Path Loss Exponent (n)</label>
+                    <input type="number" id="pathLossN" value="2.5" step="0.1">
+                    <button onclick="connect()">Connect</button>
+                </div>
+            </div>
+            
+            <div class="panel">
+                <div class="panel-title">Recent Readings</div>
+                <div id="logContainer" class="log-container"></div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // ============================================================
+        // CONFIGURATION - Edit receiver positions here (in meters)
+        // ============================================================
+        const RECEIVERS = {
+            A: { x: 0, y: 0, name: "A" },
+            B: { x: 0, y: 6, name: "B" },
+            C: { x: 8, y: 6, name: "C" }
+        };
+        
+        // Map dimensions in meters
+        const MAP_WIDTH_M = 10;
+        const MAP_HEIGHT_M = 8;
+        
+        // ============================================================
+        
+        let ws = null;
+        let rssi1m = -45;
+        let pathLossN = 2.5;
+        
+        // Recent RSSI readings for averaging
+        const recentReadings = {
+            A: [],
+            B: [],
+            C: []
+        };
+        const MAX_READINGS = 5;
+        
+        // Initialize map
+        function initMap() {
+            const map = document.getElementById('positionMap');
+            const width = map.clientWidth;
+            const height = map.clientHeight;
+            
+            // Add grid lines
+            for (let i = 0; i <= MAP_WIDTH_M; i++) {
+                const line = document.createElement('div');
+                line.className = 'grid-line vertical';
+                line.style.left = `${(i / MAP_WIDTH_M) * 100}%`;
+                map.appendChild(line);
+            }
+            for (let i = 0; i <= MAP_HEIGHT_M; i++) {
+                const line = document.createElement('div');
+                line.className = 'grid-line horizontal';
+                line.style.top = `${(i / MAP_HEIGHT_M) * 100}%`;
+                map.appendChild(line);
+            }
+            
+            // Add receivers
+            for (const [id, pos] of Object.entries(RECEIVERS)) {
+                const receiver = document.createElement('div');
+                receiver.className = 'receiver';
+                receiver.id = `receiver${id}`;
+                receiver.textContent = id;
+                receiver.style.left = `${(pos.x / MAP_WIDTH_M) * 100}%`;
+                receiver.style.top = `${(1 - pos.y / MAP_HEIGHT_M) * 100}%`;
+                
+                const label = document.createElement('div');
+                label.className = 'receiver-label';
+                label.textContent = `(${pos.x}, ${pos.y})`;
+                receiver.appendChild(label);
+                
+                // Add distance circle placeholder
+                const circle = document.createElement('div');
+                circle.className = 'distance-circle';
+                circle.id = `circle${id}`;
+                circle.style.left = `${(pos.x / MAP_WIDTH_M) * 100}%`;
+                circle.style.top = `${(1 - pos.y / MAP_HEIGHT_M) * 100}%`;
+                map.appendChild(circle);
+                
+                map.appendChild(receiver);
+            }
+            
+            // Add tag
+            const tag = document.createElement('div');
+            tag.className = 'tag';
+            tag.id = 'tag';
+            tag.style.left = '50%';
+            tag.style.top = '50%';
+            tag.style.display = 'none';
+            map.appendChild(tag);
+        }
+        
+        // Convert RSSI to distance
+        function rssiToDistance(rssi) {
+            if (rssi >= rssi1m) return 0.1;
+            return Math.pow(10, (rssi1m - rssi) / (10 * pathLossN));
+        }
+        
+        // Trilateration calculation
+        function trilaterate(distances) {
+            const r1 = RECEIVERS.A, d1 = distances.A;
+            const r2 = RECEIVERS.B, d2 = distances.B;
+            const r3 = RECEIVERS.C, d3 = distances.C;
+            
+            if (!d1 || !d2 || !d3) return null;
+            
+            const A = 2 * (r2.x - r1.x);
+            const B = 2 * (r2.y - r1.y);
+            const C = d1*d1 - d2*d2 + r2.x*r2.x - r1.x*r1.x + r2.y*r2.y - r1.y*r1.y;
+            
+            const D = 2 * (r3.x - r1.x);
+            const E = 2 * (r3.y - r1.y);
+            const F = d1*d1 - d3*d3 + r3.x*r3.x - r1.x*r1.x + r3.y*r3.y - r1.y*r1.y;
+            
+            const denom = A * E - B * D;
+            if (Math.abs(denom) < 0.0001) return null;
+            
+            const x = (C * E - B * F) / denom;
+            const y = (A * F - C * D) / denom;
+            
+            return { x, y };
+        }
+        
+        // Update display
+        function updateDisplay() {
+            // Calculate average RSSI and distances
+            const distances = {};
+            
+            for (const [id, readings] of Object.entries(recentReadings)) {
+                if (readings.length === 0) continue;
+                
+                // Median RSSI
+                const sorted = [...readings].sort((a, b) => a - b);
+                const medianRssi = sorted[Math.floor(sorted.length / 2)];
+                const distance = rssiToDistance(medianRssi);
+                distances[id] = distance;
+                
+                // Update UI
+                document.getElementById(`rssi${id}`).textContent = `${medianRssi.toFixed(0)} dBm`;
+                document.getElementById(`dist${id}`).textContent = `${distance.toFixed(2)} m`;
+                
+                // Update distance circle
+                const circle = document.getElementById(`circle${id}`);
+                const map = document.getElementById('positionMap');
+                const pixelsPerMeter = map.clientWidth / MAP_WIDTH_M;
+                const radiusPx = distance * pixelsPerMeter;
+                circle.style.width = `${radiusPx * 2}px`;
+                circle.style.height = `${radiusPx * 2}px`;
+            }
+            
+            // Calculate position
+            if (distances.A && distances.B && distances.C) {
+                const pos = trilaterate(distances);
+                
+                if (pos) {
+                    // Clamp to map bounds
+                    const x = Math.max(0, Math.min(MAP_WIDTH_M, pos.x));
+                    const y = Math.max(0, Math.min(MAP_HEIGHT_M, pos.y));
+                    
+                    // Update position display
+                    document.getElementById('posX').textContent = x.toFixed(2);
+                    document.getElementById('posY').textContent = y.toFixed(2);
+                    
+                    // Update tag on map
+                    const tag = document.getElementById('tag');
+                    tag.style.display = 'block';
+                    tag.style.left = `${(x / MAP_WIDTH_M) * 100}%`;
+                    tag.style.top = `${(1 - y / MAP_HEIGHT_M) * 100}%`;
+                }
+            }
+        }
+        
+        // Add log entry
+        function addLog(data) {
+            const container = document.getElementById('logContainer');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            
+            const time = new Date().toLocaleTimeString();
+            entry.innerHTML = `<span class="time">${time}</span> RX_${data.receiver_id}: RSSI=${data.rssi} SNR=${data.snr}`;
+            
+            container.insertBefore(entry, container.firstChild);
+            
+            // Limit log entries
+            while (container.children.length > 50) {
+                container.removeChild(container.lastChild);
+            }
+        }
+        
+        // Handle incoming data
+        function handleData(data) {
+            const rid = data.receiver_id;
+            const rssi = data.rssi;
+            
+            if (rid && rssi !== undefined && recentReadings[rid] !== undefined) {
+                recentReadings[rid].push(rssi);
+                
+                // Keep only recent readings
+                if (recentReadings[rid].length > MAX_READINGS) {
+                    recentReadings[rid].shift();
+                }
+                
+                addLog(data);
+                updateDisplay();
+            }
+        }
+        
+        // Connect to WebSocket
+        function connect() {
+            const url = document.getElementById('serverUrl').value;
+            rssi1m = parseFloat(document.getElementById('rssi1m').value);
+            pathLossN = parseFloat(document.getElementById('pathLossN').value);
+            
+            if (ws) {
+                ws.close();
+            }
+            
+            const statusEl = document.getElementById('connectionStatus');
+            statusEl.textContent = 'Connecting...';
+            statusEl.className = 'status disconnected';
+            
+            try {
+                ws = new WebSocket(url);
+                
+                ws.onopen = () => {
+                    statusEl.textContent = 'Connected';
+                    statusEl.className = 'status connected';
+                    console.log('Connected to server');
+                };
+                
+                ws.onmessage = (event) => {
+                    try {
+                        const msg = JSON.parse(event.data);
+                        
+                        // Handle wrapped format
+                        if (msg.type === 'reading' && msg.data) {
+                            handleData(msg.data);
+                        } else if (msg.receiver_id) {
+                            handleData(msg);
+                        }
+                    } catch (e) {
+                        console.error('Parse error:', e);
+                    }
+                };
+                
+                ws.onclose = () => {
+                    statusEl.textContent = 'Disconnected';
+                    statusEl.className = 'status disconnected';
+                    console.log('Disconnected');
+                };
+                
+                ws.onerror = (err) => {
+                    statusEl.textContent = 'Error';
+                    statusEl.className = 'status disconnected';
+                    console.error('WebSocket error:', err);
+                };
+                
+            } catch (e) {
+                statusEl.textContent = 'Error: ' + e.message;
+                statusEl.className = 'status disconnected';
+            }
+        }
+        
+        // Initialize
+        window.onload = () => {
+            initMap();
+            
+            // Auto-connect if URL has params
+            const params = new URLSearchParams(window.location.search);
+            if (params.get('server')) {
+                document.getElementById('serverUrl').value = params.get('server');
+                connect();
+            }
+        };
+    </script>
+</body>
+</html>
