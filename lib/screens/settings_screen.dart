@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import '../models/app_settings.dart';
 import '../services/settings_service.dart';
 import '../services/chirpstack_service.dart';
+import '../services/auth_service.dart';
+import '../services/device_service.dart';
+import '../services/firestore_service.dart';
 import 'app_drawer.dart';
 import 'live_tracking_screen.dart';
 
@@ -16,6 +19,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _formKey = GlobalKey<FormState>();
   final _settingsService = SettingsService();
   final _chirpStackService = ChirpStackService();
+  final _authService = AuthService();
+  final _deviceService = DeviceService();
+  final _firestoreService = FirestoreService();
 
   final _serverUrlController = TextEditingController();
   final _apiTokenController = TextEditingController();
@@ -26,11 +32,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isLoading = true;
   bool _isSaving = false;
   bool _isTesting = false;
+  bool _isSyncing = false;
+  Map<String, dynamic>? _syncStatus;
 
   @override
   void initState() {
     super.initState();
     _loadSettings();
+    _loadSyncStatus();
   }
 
   Future<void> _loadSettings() async {
@@ -46,6 +55,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _notificationsEnabled = settings.notificationsEnabled;
       _isLoading = false;
     });
+  }
+
+  Future<void> _loadSyncStatus() async {
+    if (_authService.isLoggedIn) {
+      final status = await _firestoreService.getSyncStatus();
+      if (mounted) {
+        setState(() => _syncStatus = status);
+      }
+    }
   }
 
   Future<void> _saveSettings() async {
@@ -117,6 +135,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _syncToCloud() async {
+    if (!_authService.isLoggedIn) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please login to sync data to cloud'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isSyncing = true);
+
+    try {
+      await _deviceService.syncWithCloud();
+      await _loadSyncStatus();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✓ Data synced to cloud successfully!'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Sync failed: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSyncing = false);
+      }
+    }
+  }
+
   @override
   void dispose() {
     _serverUrlController.dispose();
@@ -164,6 +224,122 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
+            // Cloud Sync Section (NEW!)
+            if (_authService.isLoggedIn) ...[
+              _buildSectionTitle('Cloud Synchronization'),
+              const SizedBox(height: 10),
+              Card(
+                elevation: 2,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.cloud,
+                            color: Colors.blue.shade800,
+                            size: 28,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Firebase Cloud Sync',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                Text(
+                                  _syncStatus?['synced'] == true
+                                      ? 'Status: Synced'
+                                      : 'Status: Not synced',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (_syncStatus != null && _syncStatus!['synced'] == true) ...[
+                        const SizedBox(height: 12),
+                        const Divider(),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'Devices in cloud:',
+                              style: TextStyle(fontSize: 13),
+                            ),
+                            Text(
+                              '${_syncStatus!['deviceCount']}',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (_syncStatus!['lastSync'] != null) ...[
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text(
+                                'Last synced:',
+                                style: TextStyle(fontSize: 13),
+                              ),
+                              Text(
+                                _formatDateTime(_syncStatus!['lastSync']),
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey.shade700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: _isSyncing ? null : _syncToCloud,
+                          icon: _isSyncing
+                              ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                              : const Icon(Icons.sync),
+                          label: Text(_isSyncing ? 'Syncing...' : 'Sync Now'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue.shade800,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 30),
+            ],
+
             _buildSectionTitle('Server Configuration'),
             const SizedBox(height: 10),
 
@@ -332,20 +508,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 child: _isSaving
                     ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
+                  height: 20,
+                  width: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
                     : const Text(
-                        'Save Settings',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                  'Save Settings',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
             ),
 
@@ -357,10 +533,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onPressed: _isTesting ? null : _testConnection,
                 icon: _isTesting
                     ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
                     : const Icon(Icons.wifi_tethering),
                 label: Text(
                   _isTesting ? 'Testing Connection...' : 'Test Connection',
@@ -387,5 +563,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
         color: Colors.grey.shade700,
       ),
     );
+  }
+
+  String _formatDateTime(DateTime dt) {
+    final now = DateTime.now();
+    final diff = now.difference(dt);
+
+    if (diff.inSeconds < 60) {
+      return 'Just now';
+    } else if (diff.inMinutes < 60) {
+      return '${diff.inMinutes}m ago';
+    } else if (diff.inHours < 24) {
+      return '${diff.inHours}h ago';
+    } else {
+      return '${diff.inDays}d ago';
+    }
   }
 }

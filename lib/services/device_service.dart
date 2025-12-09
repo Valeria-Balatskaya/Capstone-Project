@@ -2,10 +2,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../services/settings_service.dart';
+import 'firestore_service.dart';
+import 'auth_service.dart';
 
 class DeviceService {
   static const String _devicesKey = 'tracked_devices';
   final _settingsService = SettingsService();
+  final _firestoreService = FirestoreService();
+  final _authService = AuthService();
 
   Future<List<Map<String, dynamic>>> fetchDevicesFromChirpStack() async {
     try {
@@ -13,12 +17,12 @@ class DeviceService {
 
       final appsResponse = await http
           .get(
-            Uri.parse('${settings.serverUrl}/api/applications?limit=100'),
-            headers: {
-              'Accept': 'application/json',
-              'Grpc-Metadata-Authorization': 'Bearer ${settings.apiToken}',
-            },
-          )
+        Uri.parse('${settings.serverUrl}/api/applications?limit=100'),
+        headers: {
+          'Accept': 'application/json',
+          'Grpc-Metadata-Authorization': 'Bearer ${settings.apiToken}',
+        },
+      )
           .timeout(const Duration(seconds: 10));
 
       if (appsResponse.statusCode != 200) {
@@ -34,14 +38,14 @@ class DeviceService {
 
           final devicesResponse = await http
               .get(
-                Uri.parse(
-                  '${settings.serverUrl}/api/applications/$appId/devices?limit=100',
-                ),
-                headers: {
-                  'Accept': 'application/json',
-                  'Grpc-Metadata-Authorization': 'Bearer ${settings.apiToken}',
-                },
-              )
+            Uri.parse(
+              '${settings.serverUrl}/api/applications/$appId/devices?limit=100',
+            ),
+            headers: {
+              'Accept': 'application/json',
+              'Grpc-Metadata-Authorization': 'Bearer ${settings.apiToken}',
+            },
+          )
               .timeout(const Duration(seconds: 10));
 
           if (devicesResponse.statusCode == 200) {
@@ -80,14 +84,14 @@ class DeviceService {
 
       final response = await http
           .get(
-            Uri.parse(
-              '${settings.serverUrl}/api/devices/$devEui/events?limit=1&types=up',
-            ),
-            headers: {
-              'Accept': 'application/json',
-              'Grpc-Metadata-Authorization': 'Bearer ${settings.apiToken}',
-            },
-          )
+        Uri.parse(
+          '${settings.serverUrl}/api/devices/$devEui/events?limit=1&types=up',
+        ),
+        headers: {
+          'Accept': 'application/json',
+          'Grpc-Metadata-Authorization': 'Bearer ${settings.apiToken}',
+        },
+      )
           .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
@@ -103,7 +107,7 @@ class DeviceService {
               'altitude': eventData['altitude'] ?? 0.0,
               'accuracy': eventData['accuracy'] ?? 0.0,
               'timestamp':
-                  event['publishedAt'] ?? DateTime.now().toIso8601String(),
+              event['publishedAt'] ?? DateTime.now().toIso8601String(),
             };
           }
         }
@@ -119,9 +123,26 @@ class DeviceService {
     final prefs = await SharedPreferences.getInstance();
     final devicesJson = json.encode(devices);
     await prefs.setString(_devicesKey, devicesJson);
+
+    if (_authService.isLoggedIn) {
+      await _firestoreService.syncAllDevicesToCloud(devices);
+    }
   }
 
   Future<List<Map<String, dynamic>>> loadDevices() async {
+    if (_authService.isLoggedIn) {
+      try {
+        final cloudDevices = await _firestoreService.getDevicesFromCloud();
+        if (cloudDevices.isNotEmpty) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString(_devicesKey, json.encode(cloudDevices));
+          return cloudDevices;
+        }
+      } catch (e) {
+        print('Error loading from cloud, falling back to local: $e');
+      }
+    }
+
     final chirpStackDevices = await fetchDevicesFromChirpStack();
 
     if (chirpStackDevices.isNotEmpty) {
@@ -161,23 +182,50 @@ class DeviceService {
     final devices = await loadDevices();
     devices.add(device);
     await saveDevices(devices);
+
+    if (_authService.isLoggedIn) {
+      await _firestoreService.syncDeviceToCloud(device);
+    }
   }
 
   Future<void> removeDevice(String deviceId) async {
     final devices = await loadDevices();
     devices.removeWhere((device) => device['id'] == deviceId);
     await saveDevices(devices);
+
+    if (_authService.isLoggedIn) {
+      await _firestoreService.deleteDeviceFromCloud(deviceId);
+    }
   }
 
   Future<void> updateDevice(
-    String deviceId,
-    Map<String, dynamic> updates,
-  ) async {
+      String deviceId,
+      Map<String, dynamic> updates,
+      ) async {
     final devices = await loadDevices();
     final index = devices.indexWhere((device) => device['id'] == deviceId);
     if (index != -1) {
       devices[index] = {...devices[index], ...updates};
       await saveDevices(devices);
+
+      if (_authService.isLoggedIn) {
+        await _firestoreService.syncDeviceToCloud(devices[index]);
+      }
     }
+  }
+
+  Future<void> syncWithCloud() async {
+    if (!_authService.isLoggedIn) return;
+
+    try {
+      final localDevices = await loadDevices();
+      await _firestoreService.syncAllDevicesToCloud(localDevices);
+    } catch (e) {
+      print('Error syncing with cloud: $e');
+    }
+  }
+
+  Future<Map<String, dynamic>> getSyncStatus() async {
+    return await _firestoreService.getSyncStatus();
   }
 }
