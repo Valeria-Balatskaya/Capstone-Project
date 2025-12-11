@@ -228,6 +228,18 @@ class PositionTracker:
                 distances[rid] = rssi_to_distance(median_rssi)
         
         return distances
+    
+    def get_rssi_values(self) -> Dict[str, float]:
+        """Get current RSSI values for each receiver."""
+        rssi_vals = {}
+        
+        for rid, readings in self.recent_readings.items():
+            if readings:
+                rssi_values = sorted([r["rssi"] for r in readings])
+                median_rssi = rssi_values[len(rssi_values) // 2]
+                rssi_vals[rid] = median_rssi
+        
+        return rssi_vals
 
 
 def process_csv_file(filepath: str, live: bool = False):
@@ -270,13 +282,13 @@ def process_csv_file(filepath: str, live: bool = False):
                 
                 # Calculate position
                 position = tracker.get_position()
-                distances = tracker.get_distances()
+                rssi_values = tracker.get_rssi_values()
                 
-                if position and distances:
+                if position and rssi_values:
                     print(f"Position: ({position[0]:6.2f}, {position[1]:6.2f}) m  |  "
-                          f"Distances: A={distances.get('A', 0):5.2f}m  "
-                          f"B={distances.get('B', 0):5.2f}m  "
-                          f"C={distances.get('C', 0):5.2f}m")
+                          f"RSSI: A={rssi_values.get('A', 0):4.0f}dBm  "
+                          f"B={rssi_values.get('B', 0):4.0f}dBm  "
+                          f"C={rssi_values.get('C', 0):4.0f}dBm")
                 
                 if not live:
                     break
