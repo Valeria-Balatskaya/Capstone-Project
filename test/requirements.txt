@@ -1,6 +1,0 @@
-# Requirements for TEST approach
-# Mac (receiver_server.py): pip install pyserial websockets
-# Windows (client.py): pip install websockets
-
-pyserial>=3.5
-websockets>=12.0
