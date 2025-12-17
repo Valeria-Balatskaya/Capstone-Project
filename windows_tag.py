@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """
-Mac Tag (Sender) Script
-========================
-Runs on Mac with the TAG/sender board connected.
+Windows Tag (Sender) Script
+============================
+Runs on Windows laptop with the TAG/sender board connected.
+This laptop moves around the room with the tag to test positioning.
 Transmits LoRa packets periodically for receivers to pick up.
 
 Setup:
-    1. Connect sender board to Mac USB (different port than receiver!)
-    2. Find port: python -c "from serial.tools import list_ports; [print(p.device) for p in list_ports.comports()]"
-    3. Run: python mac_tag.py --port /dev/cu.usbserial-XXXX
+    1. Connect sender board to Windows USB
+    2. Find port in Device Manager or run: python -c "from serial.tools import list_ports; [print(p.device) for p in list_ports.comports()]"
+    3. Run: python windows_tag.py --port COM5
 
-IMPORTANT: The tag port must be DIFFERENT from the receiver port!
+IMPORTANT: This is the MOBILE unit - walk around with this laptop + tag!
 """
 
 import argparse
@@ -39,8 +40,8 @@ def list_ports():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Mac Tag (Sender) - Transmits LoRa packets")
-    parser.add_argument("--port", default="/dev/cu.usbserial-1120", help="Serial port for tag/sender")
+    parser = argparse.ArgumentParser(description="Windows Tag (Sender) - Transmits LoRa packets")
+    parser.add_argument("--port", default="COM5", help="Serial port for tag/sender (default: COM5)")
     parser.add_argument("--packets", type=int, default=10, help="Packets per burst (default: 10)")
     parser.add_argument("--interval", type=float, default=7.0, help="Seconds between bursts (default: 7)")
     parser.add_argument("--list-ports", action="store_true", help="List available ports and exit")
@@ -51,11 +52,13 @@ def main():
         return
     
     print("\n" + "=" * 50)
-    print("MAC TAG (SENDER)")
+    print("WINDOWS TAG (SENDER) - MOBILE UNIT")
     print("=" * 50)
     print(f"  Port: {args.port}")
     print(f"  Packets per burst: {args.packets}")
     print(f"  Interval: {args.interval} seconds")
+    print("=" * 50)
+    print("  📍 Move around with this laptop to test positioning!")
     print("=" * 50 + "\n")
     
     try:

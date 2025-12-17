@@ -4,23 +4,31 @@
 
 This is a **LoRa RSSI/SNR log collection system** for indoor positioning research. It collects signal strength (RSSI) and signal-to-noise ratio (SNR) data from multiple LoRa receiver boards and streams them to a central location for analysis.
 
-### Architecture
+### Architecture - 3-Laptop Production Setup
 ```
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│ Receiver B  │    │ Receiver C  │    │ Receiver D  │   (Wio-E5 boards)
-└──────┬──────┘    └──────┬──────┘    └──────┬──────┘
-       │ USB              │ USB              │ USB
-       └──────────────────┼──────────────────┘
-                          ▼
-                ┌─────────────────┐
-                │  Mac/Windows PC │  (WebSocket Server)
-                └────────┬────────┘
-                         │ WebSocket (port 8765)
-                         ▼
-                ┌─────────────────┐
-                │  Remote Client  │  (Windows/Mac)
-                └─────────────────┘
+┌─────────────────────────────────────────────┐
+│              MAC LAPTOP (Server)            │
+│  ┌─────────┐  ┌────────────┐  ┌──────────┐ │
+│  │   TAG   │  │ Receiver A │  │WebSocket │ │
+│  │(Sender) │  │  (Local)   │  │Server    │ │
+│  └────┬────┘  └─────┬──────┘  └────┬─────┘ │
+│       │USB          │USB           │:8765  │
+└───────┼─────────────┼──────────────┼───────┘
+        │             │              │
+        │             │    ┌─────────┴──────────┐
+        │             │    │                    │
+        │             │    ▼                    ▼
+        │             │  ┌──────────────┐  ┌──────────────┐
+        │             │  │  WINDOWS #1  │  │  WINDOWS #2  │
+        │             │  │  Receiver B  │  │  Receiver C  │
+        │             │  │  (COM5/7)    │  │  (COM5/7)    │
+        │             │  └──────────────┘  └──────────────┘
+        │             │         │                  │
+        └─────────────┴─────────┴──────────────────┘
+         LoRa packets broadcast to all receivers
 ```
+
+**Data Flow**: Tag broadcasts LoRa → All receivers (A,B,C) capture RSSI → B&C send via WebSocket to Mac → Mac aggregates all data → Trilateration calculates tag position
 
 ## Key Technologies
 
@@ -127,21 +135,18 @@ async with websockets.connect(f"ws://{SERVER_IP}:8765/data") as ws:
 
 ```
 lora_log_collection/
-├── auto_rx_B.py          # Standalone receiver B script
-├── auto_rx_C.py          # Standalone receiver C script  
-├── auto_rx_log.py        # Generic receiver logger
-├── auto_tag_tx.py        # Sender/tag script
-├── test/                 # WebSocket test implementations
-│   ├── receiver_server.py       # Single receiver + WebSocket
-│   ├── multi_receiver_server.py # Multi-receiver + WebSocket
-│   ├── client.py               # Single client
-│   ├── multi_client.py         # Multi-receiver client
-│   └── dashboard.html          # Web dashboard
-├── websocket/            # Production WebSocket approach
-├── mqtt/                 # MQTT broker approach
-├── shared_folder/        # Simple file-sharing approach
-└── docs/                 # Research documentation
+├── mac_server.py           # Mac: Receiver A + WebSocket server + aggregates all data
+├── mac_tag.py              # BACKUP: Tag for Mac (use windows_tag.py instead)
+├── windows_tag.py          # Windows #1: MOBILE LoRa tag/sender (walk around with this!)
+├── windows_receiver_B.py   # Windows #2: Receiver B → WebSocket client
+├── windows_receiver_C.py   # Windows #3: Receiver C → WebSocket client
+├── trilateration.py        # Real-time (X,Y) position from 3 RSSI values
+├── position_dashboard.html # Web UI for visualizing tag position
+├── requirements.txt        # Python dependencies (pyserial, websockets)
+└── README.md               # Setup guide with network/hardware steps
 ```
+
+**Key Concept**: Mac runs only receiver A + WebSocket server. Windows #1 has the MOBILE TAG (moves around). Windows #2 and #3 run static receivers (B,C) that stream data to Mac. All RSSI readings are saved to `all_receivers.csv` on Mac for trilateration processing.
 
 ## Common Patterns When Generating Code
 
@@ -223,9 +228,133 @@ pip install paho-mqtt
 3. **Connection refused**: Ensure firewall allows port 8765
 4. **No data received**: Verify AT+TRX command was sent and acknowledged
 
+## Indoor Positioning with Trilateration
+
+### Coordinate System Setup
+1. **Place receivers** at measured positions (e.g., A at origin 0,0; B at 0,6m; C at 8,6m)
+2. **Define in trilateration.py**:
+   ```python
+   RECEIVERS = {
+       "A": (0, 0),      # Origin at receiver A
+       "B": (0, 6),      # 6 meters north
+       "C": (8, 6)       # 8 meters east, 6 meters north
+   }
+   ```
+
+### RSSI Calibration
+Critical for accurate distance estimation:
+```bash
+# 1. Place tag exactly 1 meter from receiver A
+# 2. Run server to capture RSSI readings
+python3 mac_server.py --port /dev/cu.usbserial-1110
+
+# 3. Observe RSSI values in all_receivers.csv (e.g., -15 dBm)
+# 4. Use this value in trilateration.py:
+RSSI_AT_1M = -15  # Measured RSSI at 1 meter distance
+PATH_LOSS_N = 2.5  # Indoor path loss exponent
+```
+
+**Distance Formula**:
+```python
+distance = 10 ** ((rssi_1m - rssi) / (10 * n))
+```
+If `rssi >= rssi_1m`, returns minimum distance of 0.1m
+
+### Running Trilateration
+```bash
+# Real-time position tracking
+python3 trilateration.py --input all_receivers.csv --live --rssi-1m -15
+
+# Calibration mode (test with various RSSI_AT_1M values)
+python3 trilateration.py --input all_receivers.csv --live --rssi-1m -15 --calibrate
+
+# Monitor individual distances for debugging
+python3 live_distance.py --input all_receivers.csv --rssi-1m -15
+```
+
+**Output Format**:
+```
+Position: (4.12, 2.85) m | RSSI: A=-14dBm B=-47dBm C=-18dBm
+```
+
+## 4-Laptop Production Deployment
+
+### Step-by-Step Commands
+
+**1. Mac Laptop (Server + Receiver A Only)**
+```bash
+# Terminal 1: Start server with local receiver A
+python3 mac_server.py --port /dev/cu.usbserial-1110
+
+# Terminal 2: Real-time position tracking
+python3 trilateration.py --input all_receivers.csv --live --rssi-1m -15
+```
+
+**2. Windows Laptop #1 (MOBILE TAG - Walk Around!)**
+```powershell
+python windows_tag.py --port COM5
+# 📍 Move around the room with this laptop to test positioning!
+```
+
+**3. Windows Laptop #2 (Receiver B - Stationary)**
+```powershell
+python windows_receiver_B.py --port COM5 --server ws://192.168.1.10:8765/data
+```
+
+**4. Windows Laptop #3 (Receiver C - Stationary)**
+```powershell
+python windows_receiver_C.py --port COM7 --server ws://192.168.1.10:8765/data
+```
+
+### Network Setup
+```bash
+# Find Mac IP address
+ipconfig getifaddr en0  # Mac WiFi
+ipconfig getifaddr en1  # Mac Ethernet
+
+# Test connectivity from Windows
+ping 192.168.1.10
+```
+
+### Data Flow Verification
+1. **Tag (Win #1, mobile)** sends LoRa packets every 7 seconds (10-packet bursts)
+2. **All receivers** (A on Mac, B & C on Windows) capture packets with RSSI/SNR
+3. **Receivers B & C** stream data via WebSocket to Mac server
+4. **Mac server** aggregates all data (A local, B & C remote) to `all_receivers.csv`
+5. **Trilateration script** reads CSV and calculates tag's (X,Y) position as you move
+
+## Troubleshooting Common Issues
+
+### Distances Stuck at 0.10m
+**Cause**: RSSI_AT_1M calibration value too low
+```python
+# If actual RSSI is -10 dBm but RSSI_AT_1M=-45:
+# rssi >= rssi_1m → distance clamped to 0.1m minimum
+```
+**Solution**: Measure actual RSSI at 1m (typically -10 to -20 dBm for close range)
+
+### Only One Receiver Distance Changes
+**Cause**: Other receivers returning minimum distance due to calibration
+**Solution**: 
+1. Verify all receivers in `all_receivers.csv` have recent timestamps
+2. Check RSSI values in output: `RSSI: A=-14dBm B=-47dBm C=-18dBm`
+3. Ensure RSSI_AT_1M is lower than actual received RSSI values
+
+### WebSocket Connection Refused
+- Verify firewall allows port 8765
+- Check Mac server IP with `ipconfig getifaddr en0`
+- Ensure server script shows "WebSocket server started on port 8765"
+
+### 100% Packet Loss
+- Verify AT+TCONF matches on tag and all receivers
+- Check antenna connections
+- Ensure receivers are in RX mode (`AT+TRX=9999`)
+
 ## When Modifying This Project
 
-1. **Adding a new receiver**: Copy `auto_rx_B.py`, update PORT and OUT_CSV
-2. **Changing frequency**: Update `AT+TCONF` in all receiver and sender scripts
-3. **Adding dashboard features**: Modify `dashboard.html` and corresponding WebSocket handler
+1. **Adding a new receiver**: Copy `windows_receiver_C.py`, update PORT and RECEIVER_ID
+2. **Changing frequency**: Update `AT+TCONF` in windows_tag.py and all receiver scripts
+3. **Adding dashboard features**: Modify `position_dashboard.html` and WebSocket handler in `mac_server.py`
 4. **Cross-platform support**: Always use `sys.platform` check for serial ports
+5. **Adjusting coordinate system**: Measure new receiver positions, update `RECEIVERS` dict in `trilateration.py`
+6. **Testing without hardware**: Add `--demo` flag to generate random RSSI values

@@ -39,8 +39,8 @@ class ReceiverPosition:
 # Receiver positions in meters (measure these!)
 RECEIVERS = {
     "A": ReceiverPosition(x=0.0, y=0.0, name="A"),   # Mac - set as origin
-    "B": ReceiverPosition(x=0.0, y=6.0, name="B"),   # Windows #1
-    "C": ReceiverPosition(x=8.0, y=6.0, name="C"),   # Windows #2
+    "B": ReceiverPosition(x=0.0, y=6.0, name="B"),   # Windows #2 (stationary)
+    "C": ReceiverPosition(x=8.0, y=6.0, name="C"),   # Windows #3 (stationary)
 }
 
 # RSSI calibration values (calibrate these!)
@@ -65,7 +65,7 @@ def rssi_to_distance(rssi: float, rssi_1m: float = RSSI_AT_1M, n: float = PATH_L
         Estimated distance in meters
     """
     if rssi >= rssi_1m:
-        return 0.1  # Very close, minimum distance
+        return abs(rssi - rssi_1m) * 0.01  
     
     distance = 10 ** ((rssi_1m - rssi) / (10 * n))
     return round(distance, 2)
