@@ -48,10 +48,19 @@ RECEIVERS = {
 RSSI_AT_1M_PER_RECEIVER = {
     "A": -17,  # Measured: -17 dBm at 1m
     "B": -23,  # Measured: -23 dBm at 1m
-    "C": -68,  # Measured: -68 dBm at 1m (weak antenna/orientation)
+    "C": -68,  # Measured: -68 dBm at 1m (through walls)
 }
-RSSI_AT_1M = -36      # Fallback global value (not used if per-receiver defined)
-PATH_LOSS_N = 2.5     # Path loss exponent: 2.0=open, 2.5=indoor, 3.5=walls
+
+# Per-receiver path loss exponent (for tag inside, receivers outside)
+# Higher n = more obstacles/walls between tag and receiver
+PATH_LOSS_N_PER_RECEIVER = {
+    "A": 3.0,  # Light wall penetration
+    "B": 3.0,  # Light wall penetration
+    "C": 4.5,  # Heavy wall penetration (weak signal)
+}
+
+RSSI_AT_1M = -36      # Fallback global value
+PATH_LOSS_N = 2.5     # Fallback global path loss
 
 # ============================================================
 
@@ -77,14 +86,16 @@ def rssi_to_distance(rssi: float, rssi_1m: float = RSSI_AT_1M, n: float = PATH_L
     return round(distance, 2)
 
 
-def trilaterate(distances: Dict[str, float]) -> Optional[Tuple[float, float]]:
+def trilaterate(distances: Dict[str, float], variances: Dict[str, float] = None) -> Optional[Tuple[float, float]]:
     """
-    Calculate position using trilateration from 3 receivers.
+    Calculate position using weighted trilateration from 3 receivers.
     
-    Uses least squares approximation for overdetermined system.
+    Uses weighted least squares with RSSI variance weighting.
+    More stable RSSI (lower variance) gets higher weight.
     
     Args:
         distances: Dict of receiver_id -> distance in meters
+        variances: Dict of receiver_id -> RSSI variance (lower = better)
     
     Returns:
         (x, y) position in meters, or None if insufficient data
@@ -93,11 +104,19 @@ def trilaterate(distances: Dict[str, float]) -> Optional[Tuple[float, float]]:
     if len(distances) < 3:
         return None
     
-    # Get receiver positions and distances
+    # Get receiver positions, distances, and weights
     receivers = []
+    weights = []
+    
     for rid, dist in distances.items():
         if rid in RECEIVERS:
             receivers.append((RECEIVERS[rid], dist))
+            
+            # Weight = 1 / (variance + 0.1) - more stable = higher weight
+            if variances and rid in variances:
+                weights.append(1.0 / (variances[rid] + 0.1))
+            else:
+                weights.append(1.0)
     
     if len(receivers) < 3:
         return None
@@ -106,6 +125,7 @@ def trilaterate(distances: Dict[str, float]) -> Optional[Tuple[float, float]]:
     r1, d1 = receivers[0]
     r2, d2 = receivers[1]
     r3, d3 = receivers[2]
+    w1, w2, w3 = weights[0], weights[1], weights[2]
     
     # Trilateration equations:
     # (x - x1)² + (y - y1)² = d1²
@@ -124,15 +144,38 @@ def trilaterate(distances: Dict[str, float]) -> Optional[Tuple[float, float]]:
     E = 2 * (r3.y - r1.y)
     F = d1**2 - d3**2 + r3.x**2 - r1.x**2 + r3.y**2 - r1.y**2
     
-    # Solve system: Ax + By = C, Dx + Ey = F
+    # Apply weights to equations
+    A *= w2
+    B *= w2
+    C *= w2
+    
+    D *= w3
+    E *= w3
+    F *= w3
+    
+    # Solve weighted system: Ax + By = C, Dx + Ey = F
     denom = A * E - B * D
     
     if abs(denom) < 0.0001:
-        # Receivers are collinear, can't solve
-        return None
+        # Receivers are collinear or weights cancel out
+        # Fall back to geometric centroid
+        return (
+            round((r1.x + r2.x + r3.x) / 3, 2),
+            round((r1.y + r2.y + r3.y) / 3, 2)
+        )
     
     x = (C * E - B * F) / denom
     y = (A * F - C * D) / denom
+    
+    # Sanity check: reject impossible positions (too far from all receivers)
+    max_dist = max(d1, d2, d3)
+    centroid_x = (r1.x + r2.x + r3.x) / 3
+    centroid_y = (r1.y + r2.y + r3.y) / 3
+    dist_to_centroid = ((x - centroid_x)**2 + (y - centroid_y)**2)**0.5
+    
+    if dist_to_centroid > max_dist * 1.5:
+        # Position too far from receiver triangle, likely calculation error
+        return None
     
     return (round(x, 2), round(y, 2))
 
@@ -176,7 +219,7 @@ def weighted_trilaterate(readings: List[Dict]) -> Optional[Tuple[float, float]]:
 
 
 class PositionTracker:
-    """Track tag position over time with smoothing."""
+    """Track tag position over time with smoothing and outlier rejection."""
     
     def __init__(self, window_size: int = 5):
         self.window_size = window_size
@@ -197,22 +240,33 @@ class PositionTracker:
             })
     
     def get_position(self) -> Optional[Tuple[float, float]]:
-        """Calculate current position from recent readings."""
+        """Calculate current position from recent readings with outlier rejection."""
         distances = {}
+        rssi_variances = {}  # Track RSSI stability for weighting
         
         for rid, readings in self.recent_readings.items():
             if not readings:
                 continue
             
-            # Use median RSSI for robustness
-            rssi_values = sorted([r["rssi"] for r in readings])
-            median_rssi = rssi_values[len(rssi_values) // 2]
+            # Outlier rejection: remove RSSI values > 2 std devs from median
+            rssi_values = [r["rssi"] for r in readings]
+            if len(rssi_values) >= 3:
+                median = sorted(rssi_values)[len(rssi_values) // 2]
+                std = (sum((x - median)**2 for x in rssi_values) / len(rssi_values)) ** 0.5
+                filtered = [x for x in rssi_values if abs(x - median) <= 2 * std]
+                if filtered:
+                    rssi_values = filtered
+                rssi_variances[rid] = std  # Lower variance = more reliable
             
-            # Use per-receiver calibration if available
+            median_rssi = sorted(rssi_values)[len(rssi_values) // 2]
+            
+            # Use per-receiver calibration and path loss
             rssi_1m = RSSI_AT_1M_PER_RECEIVER.get(rid, RSSI_AT_1M)
-            distances[rid] = rssi_to_distance(median_rssi, rssi_1m)
+            n = PATH_LOSS_N_PER_RECEIVER.get(rid, PATH_LOSS_N)
+            distances[rid] = rssi_to_distance(median_rssi, rssi_1m, n)
         
-        position = trilaterate(distances)
+        # Use weighted trilateration based on RSSI stability
+        position = trilaterate(distances, rssi_variances)
         
         if position:
             self.position_history.append(position)
@@ -233,9 +287,10 @@ class PositionTracker:
             if readings:
                 rssi_values = sorted([r["rssi"] for r in readings])
                 median_rssi = rssi_values[len(rssi_values) // 2]
-                # Use per-receiver calibration if available
+                # Use per-receiver calibration and path loss
                 rssi_1m = RSSI_AT_1M_PER_RECEIVER.get(rid, RSSI_AT_1M)
-                distances[rid] = rssi_to_distance(median_rssi, rssi_1m)
+                n = PATH_LOSS_N_PER_RECEIVER.get(rid, PATH_LOSS_N)
+                distances[rid] = rssi_to_distance(median_rssi, rssi_1m, n)
         
         return distances
     
