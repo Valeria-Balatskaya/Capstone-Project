@@ -1,156 +1,178 @@
-# LoraTrack
+# LoraTrack v2.0.0
 
-**Version 1.5.0**
+**Grade 5 Mobile Systems Course - Indoor Position Tracking Using LoRaWAN**
 
-A Flutter mobile application for real-time indoor position tracking using LoRaWAN technology without GPS dependency.
-
-## Overview
-
-LoraTrack is a mobile application for Capstone Module project that demonstrates GPS-free indoor positioning using LoRaWAN protocol. The app displays real-time device positions calculated from RSSI-based trilateration with outdoor gateways tracking indoor tags.
+A Flutter mobile application demonstrating GPS-free indoor positioning using LoRaWAN technology with AI-powered analytics.
 
 ## Features
 
-- **Live Position Tracking** - Real-time visualization of device location
-- **Device Management** - Monitor multiple LoRaWAN tracking tags
-- **Settings Configuration** - Configure ChirpStack server connection
-- **Hamburger Menu Navigation** - Easy access to all features
-- **Position History** - Track device movement over time
-- **Status Indicators** - Live/offline status, battery levels, accuracy metrics
-- **Phone GPS Alignment** - Pull handset GPS to compare with LoRaWAN-derived position
-- **Test Connection** - Testing connection with chirpstack server
+### Grade 3 Requirements ✅
+- **CRUD Operations**: Create, view, edit, and delete device entries
+- **Local Storage**: SharedPreferences for offline data persistence
+- **Navigation**: Drawer navigation with consistent UI
+- **Stable Functionality**: No crashes during basic operations
 
-## Tech Stack
+### Grade 4 Requirements ✅
+- **Firebase Authentication**: Email/password registration and login
+- **Cloud Synchronization**: Real-time Firebase sync
+- **Search & Filter**: Device list with search, status filters, and sorting
+- **Notifications**: Smart alerts for battery, signal, and device status
 
-- **Framework:** Flutter 3.120.0 / Dart
-- **LoRaWAN Protocol:** ChirpStack network server integration
-- **Positioning:** RSSI-based trilateration
-- **Communication:** MQTT for real-time updates
-- **Storage:** SQLite, InfluxDB
+### Grade 5 Requirements ✅
+- **AI/ML Integration**: 
+  - Z-score anomaly detection
+  - Linear regression trend analysis
+  - Pattern recognition algorithms
+  - Performance scoring with weighted factors
+- **Sensor Integration**:
+  - GPS location service with permissions
+  - Step counter with activity classification
+- **External API**:
+  - OpenWeatherMap integration
+  - Weather-based tracking advice
+- **Analytics Dashboard**:
+  - Interactive charts with fl_chart
+  - Device statistics and history visualization
 
 ## Project Structure
-lib/
-├── screens/
-│ ├── live_tracking_screen.dart # Main position map with device selector
-│ ├── device_list_screen.dart # Device management (add/edit/delete)
-│ ├── device_detail_screen.dart # Individual device details view
-│ ├── settings_screen.dart # App configuration with forms
-│ └── about_screen.dart # Project information
-| └── app_drawer.dart # Burger menu
-├── services/
-│ ├── device_service.dart # Device persistence service
-│ └── settings_service.dart # Settings persistence service
-| └── chirpstack_service.dart # Chirpstack persistence service
-├── models/
-│ └── app_settings.dart # Settings data model
-└── main.dart # App entry point
 
-## Getting Started
+```
+lib/
+├── main.dart                    # App entry point with routes
+├── models/
+│   ├── device.dart              # Device data model
+│   ├── device_history.dart      # Historical tracking data
+│   ├── app_settings.dart        # Settings model
+│   └── ai_models.dart           # AI analysis models
+├── services/
+│   ├── auth_service.dart        # Firebase authentication
+│   ├── device_service.dart      # Device CRUD + Firebase
+│   ├── simulation_service.dart  # Realistic data generation
+│   ├── ai_service.dart          # ML algorithms
+│   ├── notification_service.dart# Push notifications
+│   ├── location_service.dart    # GPS integration
+│   ├── weather_service.dart     # OpenWeatherMap API
+│   ├── step_counter_service.dart# Pedometer integration
+│   └── settings_service.dart    # App settings persistence
+├── screens/
+│   ├── login_screen.dart        # Authentication
+│   ├── register_screen.dart     # User registration
+│   ├── live_tracking_screen.dart# Main dashboard
+│   ├── device_list_screen.dart  # Device management
+│   ├── device_detail_screen.dart# Device details & history
+│   ├── analytics_screen.dart    # Charts & statistics
+│   ├── ai_assistant_screen.dart # AI insights
+│   ├── profile_screen.dart      # User profile
+│   ├── settings_screen.dart     # App configuration
+│   ├── about_screen.dart        # App information
+│   └── map_screen.dart          # Map visualization
+└── widgets/
+    └── app_drawer.dart          # Navigation drawer
+```
+
+## Firebase Setup
+
+### 1. Create Firebase Project
+1. Go to [Firebase Console](https://console.firebase.google.com)
+2. Create new project named "LoraTrack"
+3. Enable Authentication (Email/Password)
+4. Enable Cloud Firebase
+
+### 2. Android Configuration
+1. In Firebase Console → Project Settings → Add Android App
+2. Package name: `com.example.lorawan_mobile_app`
+3. Download `google-services.json`
+4. Place in `android/app/` folder
+
+### 3. Firebase Rules
+```javascript
+rules_version = '2';
+service cloud.Firebase {
+  match /databases/{database}/documents {
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      
+      match /devices/{deviceId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+        
+        match /history/{historyId} {
+          allow read, write: if request.auth != null && request.auth.uid == userId;
+        }
+      }
+    }
+  }
+}
+```
+
+## Installation
 
 ### Prerequisites
+- Flutter SDK 3.0+
+- Android Studio
+- Firebase account
 
-- Flutter SDK (3.0+)
-- Dart SDK
-- Android Studio / VS Code
-- ChirpStack server (for production)
+### Steps
+1. Clone the repository
+2. Run `flutter pub get`
+3. Configure Firebase (see above)
+4. Run `flutter run`
 
-### Installation
+## How It Works
 
-1. Clone the repository:
+### Device Creation Flow
+1. User creates device → DeviceService generates unique ID
+2. SimulationService creates realistic initial values
+3. Device saved to Firebase with user isolation
+4. Historical data generated for AI analysis
 
-git clone https://github.com/Valeria-Balatskaya/Capstone-Project.git
+### AI Analysis Flow
+1. AI Service fetches device history from Firebase
+2. Runs statistical algorithms:
+   - **Anomaly Detection**: Z-score analysis (>2 std dev = anomaly)
+   - **Trend Analysis**: Linear regression on battery/signal
+   - **Pattern Recognition**: Hourly activity, movement distance
+3. Generates context-aware suggestions with confidence scores
 
-2. Install dependencies:
+### Data Consistency
+- SimulationService maintains device state in memory
+- Same device shows identical values across all screens
+- No random regeneration on screen changes
 
-flutter pub get
+## Testing Guide
 
-3. Run the app:
+1. **Register Account**: Create new user, verify welcome notification
+2. **Add Device**: Tap + button, enter device name
+3. **Check Consistency**: Same battery/signal on all screens
+4. **Test Search**: Type in search box on device list
+5. **Test Filters**: Tap filter icon, select status/sort
+6. **View AI Insights**: Navigate to AI Assistant screen
+7. **Test Location**: Tap "Locate" button on main screen
+8. **Test Notifications**: Wait for low battery alert
 
-flutter run
+## Team
 
-## Usage
+- Vladyslav Dubenchuk
+- Valeriia Balatska
+- Daniyar Zhumataev
+- Kuzma Martysiuk
 
+## Version History
 
-### Basic Navigation
-1. **Launch App** - Opens directly to live position tracking
-2. **Select Device** - Tap device name in AppBar to switch tracked device
-3. **Tap Hamburger Menu** - Access devices, settings, and about screens
-4. **Refresh Position** - Tap floating button to update location
+### v2.0.0 (December 2025)
+- Complete Grade 5 implementation
+- Real ML algorithms (not if/else rules)
+- Automatic Firebase sync
+- Android 13+ permission handling
+- Step counter integration
+- Weather API integration
 
-### Device Management
-1. **Add Device** - Tap "+" in Devices screen, enter DevEUI, name, and description
-2. **View Details** - Tap device card, select "View Details" for full information
-3. **Edit Device** - From device options menu, modify device information
-4. **Delete Device** - Long-press device or use options menu (with undo support)
+### v1.6.0 (November 2025)
+- OpenStreetMap integration
 
-### Settings Configuration
-1. **ChirpStack Server** - Enter server URL (e.g., http://"Ipv4 of chirpstack server host":8080)
-2. **API Token** - Configured authentication credentials
-3. **MQTT Broker** - Set broker address for real-time updates
-4. **Update Interval** - Adjust position refresh rate (1-30 seconds)
-5. **Notifications** - Enable/disable position update alerts
+### v1.5.0 (November 2025)
+- GPS sensor integration
+- Phone vs LoRa comparison
 
-## Project Context 
+## License
 
-**Capstone Project:** Position Measurement Using LoRaWAN
-
-**Requirements:**
-- Localize moving tags inside buildings
-- Use outdoor gateways only (no GPS)
-- Real-time or near-real-time tracking
-- Measure accuracy, coverage, and power consumption
-
-## Team members
-
-1. Vladyslav Dubenchuk
-2. Valeriia Balatska
-3. Daniyar Zhumataev
-4. Kuzma Martysiuk
-
-## Versioning
-
-### Version 1.6.0 (Week 7 - November 2025)
-
-- OpenStreetMap integration - Shows user's GPS location on a map
-
-### Version 1.5.0 (Week 6 - November 2025)
-
-- GPS Sensor Integration - Uses the handset's location sensor (Geolocator) with runtime permissions
-- Phone vs LoRa Comparison - Live tracking screen surfaces phone latitude/longitude alongside LoRa stats
-- Platform Permissions - Adds Android/iOS location descriptions to match store requirements
-
-### Version 1.4.0 (Week 5 - November 2025)
-
-- ChirpStack Integration - Direct connection to ChirpStack network server via REST API
-- Connection Test Feature - Settings screen now includes real-time server connectivity testing
-- Improved UI Layout - Current position display relocated to bottom of tracking screen near device stats
-- Enhanced Settings - ChirpStack REST API proxy support for LoRaWAN v4 compatibility
-- API Token Authentication - Secure bearer token authentication with ChirpStack server
-- Device Fetching - Automatic device synchronization from ChirpStack applications
-- Better UX - Repositioned position information bar for improved accessibility and visual hierarchy
-
-### Version 1.3.0 (Week 4 Final - October 2025)
-
--Final adjustments were made to finalize Week 4 Requirements
-
-### Version 1.2.0 (Week 4 - October 2025)
-
-- Forms and user input validation
-- Persistent storage for devices and settings
-- Device management (add, edit, delete with undo)
-- Device selector on main tracking screen
-- Device detail view screen
-- Settings form with ChirpStack server configuration
-- Update interval and notification preferences
-- Dynamic device count display
-- Form validation for server URLs and API tokens
-
-### Version 1.1.0 (Week 3 - October 2025)
-
-- Hamburger menu navigation
-- Consistent UI 
-- Requirements from Week3 completed
-
-### Version 1.0.0 (Week 2 - October 2025)
-
-- Hello UI 
-- Requirements for Week2 completed
+© 2025 LoraTrack Team - Mobile Systems Course Capstone Project

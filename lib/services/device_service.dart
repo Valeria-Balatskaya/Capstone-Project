@@ -1,231 +1,304 @@
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import '../services/settings_service.dart';
-import 'firestore_service.dart';
+import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../models/device.dart';
+import '../models/device_history.dart';
 import 'auth_service.dart';
+import 'simulation_service.dart';
 
 class DeviceService {
-  static const String _devicesKey = 'tracked_devices';
-  final _settingsService = SettingsService();
-  final _firestoreService = FirestoreService();
-  final _authService = AuthService();
+  static final DeviceService _instance = DeviceService._internal();
+  factory DeviceService() => _instance;
+  DeviceService._internal();
 
-  Future<List<Map<String, dynamic>>> fetchDevicesFromChirpStack() async {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final AuthService _authService = AuthService();
+  final SimulationService _simulationService = SimulationService();
+
+  CollectionReference get _devicesCollection {
+    final userId = _authService.currentUserId;
+    if (userId == null) throw Exception('User not logged in');
+    return _firestore.collection('users').doc(userId).collection('devices');
+  }
+
+  CollectionReference _historyCollection(String deviceId) {
+    final userId = _authService.currentUserId;
+    if (userId == null) throw Exception('User not logged in');
+    return _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('devices')
+        .doc(deviceId)
+        .collection('history');
+  }
+
+  Stream<List<Device>> watchDevices() {
+    if (!_authService.isLoggedIn) {
+      return Stream.value([]);
+    }
+
+    return _devicesCollection
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs.map((doc) => Device.fromFirestore(doc)).toList();
+    });
+  }
+
+  Future<List<Device>> getDevices() async {
+    if (!_authService.isLoggedIn) return [];
+
     try {
-      final settings = await _settingsService.loadSettings();
-
-      final appsResponse = await http
-          .get(
-        Uri.parse('${settings.serverUrl}/api/applications?limit=100'),
-        headers: {
-          'Accept': 'application/json',
-          'Grpc-Metadata-Authorization': 'Bearer ${settings.apiToken}',
-        },
-      )
-          .timeout(const Duration(seconds: 10));
-
-      if (appsResponse.statusCode != 200) {
-        throw Exception('Failed to fetch applications');
-      }
-
-      final appsData = json.decode(appsResponse.body);
-      List<Map<String, dynamic>> allDevices = [];
-
-      if (appsData['result'] != null) {
-        for (var app in appsData['result']) {
-          final appId = app['id'];
-
-          final devicesResponse = await http
-              .get(
-            Uri.parse(
-              '${settings.serverUrl}/api/applications/$appId/devices?limit=100',
-            ),
-            headers: {
-              'Accept': 'application/json',
-              'Grpc-Metadata-Authorization': 'Bearer ${settings.apiToken}',
-            },
-          )
-              .timeout(const Duration(seconds: 10));
-
-          if (devicesResponse.statusCode == 200) {
-            final devicesData = json.decode(devicesResponse.body);
-
-            if (devicesData['result'] != null) {
-              for (var device in devicesData['result']) {
-                allDevices.add({
-                  'id': device['devEui'] ?? device['name'] ?? 'unknown',
-                  'name': device['name'] ?? 'Unnamed Device',
-                  'description': device['description'] ?? '',
-                  'applicationId': appId,
-                  'applicationName': app['name'] ?? '',
-                  'deviceProfileId': device['deviceProfileId'] ?? '',
-                  'status': 'unknown',
-                  'lastSeen': 'Never',
-                  'battery': 0,
-                  'accuracy': 0.0,
-                });
-              }
-            }
-          }
-        }
-      }
-
-      return allDevices;
+      final snapshot =
+          await _devicesCollection.orderBy('createdAt', descending: true).get();
+      return snapshot.docs.map((doc) => Device.fromFirestore(doc)).toList();
     } catch (e) {
-      print('Error fetching devices from ChirpStack: $e');
+      print('Error getting devices: $e');
       return [];
     }
   }
 
-  Future<Map<String, dynamic>?> getDeviceLocation(String devEui) async {
+  Future<Device?> getDevice(String deviceId) async {
+    if (!_authService.isLoggedIn) return null;
+
     try {
-      final settings = await _settingsService.loadSettings();
-
-      final response = await http
-          .get(
-        Uri.parse(
-          '${settings.serverUrl}/api/devices/$devEui/events?limit=1&types=up',
-        ),
-        headers: {
-          'Accept': 'application/json',
-          'Grpc-Metadata-Authorization': 'Bearer ${settings.apiToken}',
-        },
-      )
-          .timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (data['result'] != null && data['result'].isNotEmpty) {
-          final event = data['result'][0];
-
-          if (event['data'] != null) {
-            final eventData = event['data'];
-            return {
-              'latitude': eventData['latitude'] ?? 0.0,
-              'longitude': eventData['longitude'] ?? 0.0,
-              'altitude': eventData['altitude'] ?? 0.0,
-              'accuracy': eventData['accuracy'] ?? 0.0,
-              'timestamp':
-              event['publishedAt'] ?? DateTime.now().toIso8601String(),
-            };
-          }
-        }
-      }
-      return null;
+      final doc = await _devicesCollection.doc(deviceId).get();
+      if (!doc.exists) return null;
+      return Device.fromFirestore(doc);
     } catch (e) {
-      print('Error fetching device location: $e');
+      print('Error getting device: $e');
       return null;
     }
   }
 
-  Future<void> saveDevices(List<Map<String, dynamic>> devices) async {
-    final prefs = await SharedPreferences.getInstance();
-    final devicesJson = json.encode(devices);
-    await prefs.setString(_devicesKey, devicesJson);
+  Future<Device?> createDevice({
+    required String name,
+    String description = '',
+    double? latitude,
+    double? longitude,
+  }) async {
+    if (!_authService.isLoggedIn) return null;
 
-    if (_authService.isLoggedIn) {
-      await _firestoreService.syncAllDevicesToCloud(devices);
-    }
-  }
-
-  Future<List<Map<String, dynamic>>> loadDevices() async {
-    if (_authService.isLoggedIn) {
-      try {
-        final cloudDevices = await _firestoreService.getDevicesFromCloud();
-        if (cloudDevices.isNotEmpty) {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString(_devicesKey, json.encode(cloudDevices));
-          return cloudDevices;
-        }
-      } catch (e) {
-        print('Error loading from cloud, falling back to local: $e');
+    try {
+      final deviceId = _devicesCollection.doc().id;
+      final now = DateTime.now();
+      
+      double baseLatitude;
+      double baseLongitude;
+      
+      if (latitude != null && longitude != null) {
+        baseLatitude = latitude;
+        baseLongitude = longitude;
+      } else {
+        final diverseLocation = _simulationService.generateDiverseLocation(deviceId);
+        baseLatitude = diverseLocation['latitude']!;
+        baseLongitude = diverseLocation['longitude']!;
       }
-    }
 
-    final chirpStackDevices = await fetchDevicesFromChirpStack();
+      final simulatedData = _simulationService.generateInitialDeviceData(
+        deviceId: deviceId,
+        baseLatitude: baseLatitude,
+        baseLongitude: baseLongitude,
+      );
 
-    if (chirpStackDevices.isNotEmpty) {
-      await saveDevices(chirpStackDevices);
-      return chirpStackDevices;
-    }
+      final device = Device(
+        id: deviceId,
+        name: name,
+        description: description,
+        status: 'online',
+        lastSeen: now,
+        battery: simulatedData['battery'],
+        accuracy: simulatedData['accuracy'],
+        latitude: simulatedData['latitude'],
+        longitude: simulatedData['longitude'],
+        signalStrength: simulatedData['signalStrength'],
+        createdAt: now,
+        userId: _authService.currentUserId!,
+      );
 
-    final prefs = await SharedPreferences.getInstance();
-    final devicesJson = prefs.getString(_devicesKey);
+      await _devicesCollection.doc(deviceId).set(device.toMap());
 
-    if (devicesJson != null) {
-      final List devicesList = json.decode(devicesJson);
-      return devicesList.map((e) => Map<String, dynamic>.from(e)).toList();
-    }
+      await _generateInitialHistory(device);
 
-    return [
-      {
-        'id': 'Device-001',
-        'name': 'Tracking Tag 1',
-        'status': 'offline',
-        'lastSeen': 'Not connected',
-        'battery': 0,
-        'accuracy': 0.0,
-      },
-      {
-        'id': 'Device-002',
-        'name': 'Tracking Tag 2',
-        'status': 'offline',
-        'lastSeen': 'Not connected',
-        'battery': 0,
-        'accuracy': 0.0,
-      },
-    ];
-  }
-
-  Future<void> addDevice(Map<String, dynamic> device) async {
-    final devices = await loadDevices();
-    devices.add(device);
-    await saveDevices(devices);
-
-    if (_authService.isLoggedIn) {
-      await _firestoreService.syncDeviceToCloud(device);
+      return device;
+    } catch (e) {
+      print('Error creating device: $e');
+      return null;
     }
   }
 
-  Future<void> removeDevice(String deviceId) async {
-    final devices = await loadDevices();
-    devices.removeWhere((device) => device['id'] == deviceId);
-    await saveDevices(devices);
+  Future<void> _generateInitialHistory(Device device) async {
+    final historyEntries =
+        _simulationService.generateHistoricalData(device, days: 14);
 
-    if (_authService.isLoggedIn) {
-      await _firestoreService.deleteDeviceFromCloud(deviceId);
+    final batch = _firestore.batch();
+    for (var entry in historyEntries) {
+      final docRef = _historyCollection(device.id).doc(entry.id);
+      batch.set(docRef, entry.toMap());
+    }
+    await batch.commit();
+  }
+
+  Future<bool> updateDevice(Device device) async {
+    if (!_authService.isLoggedIn) return false;
+
+    try {
+      await _devicesCollection.doc(device.id).update(device.toMap());
+      return true;
+    } catch (e) {
+      print('Error updating device: $e');
+      return false;
     }
   }
 
-  Future<void> updateDevice(
-      String deviceId,
-      Map<String, dynamic> updates,
-      ) async {
-    final devices = await loadDevices();
-    final index = devices.indexWhere((device) => device['id'] == deviceId);
-    if (index != -1) {
-      devices[index] = {...devices[index], ...updates};
-      await saveDevices(devices);
+  Future<bool> deleteDevice(String deviceId) async {
+    if (!_authService.isLoggedIn) return false;
 
-      if (_authService.isLoggedIn) {
-        await _firestoreService.syncDeviceToCloud(devices[index]);
+    try {
+      final historySnapshot = await _historyCollection(deviceId).get();
+      final batch = _firestore.batch();
+      for (var doc in historySnapshot.docs) {
+        batch.delete(doc.reference);
       }
+      batch.delete(_devicesCollection.doc(deviceId));
+      await batch.commit();
+
+      return true;
+    } catch (e) {
+      print('Error deleting device: $e');
+      return false;
     }
   }
 
-  Future<void> syncWithCloud() async {
+  Future<void> updateDeviceData(String deviceId) async {
     if (!_authService.isLoggedIn) return;
 
     try {
-      final localDevices = await loadDevices();
-      await _firestoreService.syncAllDevicesToCloud(localDevices);
+      final device = await getDevice(deviceId);
+      if (device == null) return;
+
+      final newData = _simulationService.generateUpdatedDeviceData(device);
+      final now = DateTime.now();
+
+      await _devicesCollection.doc(deviceId).update({
+        'battery': newData['battery'],
+        'accuracy': newData['accuracy'],
+        'latitude': newData['latitude'],
+        'longitude': newData['longitude'],
+        'signalStrength': newData['signalStrength'],
+        'lastSeen': Timestamp.fromDate(now),
+        'status': newData['battery'] > 5 ? 'online' : 'offline',
+      });
+
+      final historyEntry = DeviceHistory(
+        id: _historyCollection(deviceId).doc().id,
+        deviceId: deviceId,
+        latitude: newData['latitude'],
+        longitude: newData['longitude'],
+        accuracy: newData['accuracy'],
+        timestamp: now,
+        battery: newData['battery'],
+        signalStrength: newData['signalStrength'],
+      );
+
+      await _historyCollection(deviceId).doc(historyEntry.id).set(historyEntry.toMap());
     } catch (e) {
-      print('Error syncing with cloud: $e');
+      print('Error updating device data: $e');
     }
   }
 
-  Future<Map<String, dynamic>> getSyncStatus() async {
-    return await _firestoreService.getSyncStatus();
+  Stream<List<DeviceHistory>> watchDeviceHistory(String deviceId, {int limit = 100}) {
+    if (!_authService.isLoggedIn) {
+      return Stream.value([]);
+    }
+
+    return _historyCollection(deviceId)
+        .orderBy('timestamp', descending: true)
+        .limit(limit)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs.map((doc) => DeviceHistory.fromFirestore(doc)).toList();
+    });
+  }
+
+  Future<List<DeviceHistory>> getDeviceHistory(
+    String deviceId, {
+    int limit = 100,
+    DateTime? since,
+  }) async {
+    if (!_authService.isLoggedIn) return [];
+
+    try {
+      var query = _historyCollection(deviceId)
+          .orderBy('timestamp', descending: true)
+          .limit(limit);
+
+      if (since != null) {
+        query = query.where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(since));
+      }
+
+      final snapshot = await query.get();
+      return snapshot.docs.map((doc) => DeviceHistory.fromFirestore(doc)).toList();
+    } catch (e) {
+      print('Error getting device history: $e');
+      return [];
+    }
+  }
+
+  Future<Map<String, dynamic>> getDeviceStatistics(
+    String deviceId, {
+    DateTime? since,
+  }) async {
+    final history = await getDeviceHistory(deviceId, limit: 200, since: since);
+
+    if (history.isEmpty) {
+      return {
+        'averageAccuracy': 0.0,
+        'bestAccuracy': 0.0,
+        'worstAccuracy': 0.0,
+        'averageBattery': 0,
+        'averageSignal': 0,
+        'totalDataPoints': 0,
+        'uptimePercent': 0.0,
+      };
+    }
+
+    final accuracies = history.map((h) => h.accuracy).toList();
+    final batteries = history.map((h) => h.battery).toList();
+    final signals = history.map((h) => h.signalStrength).toList();
+
+    return {
+      'averageAccuracy':
+          accuracies.reduce((a, b) => a + b) / accuracies.length,
+      'bestAccuracy': accuracies.reduce((a, b) => a < b ? a : b),
+      'worstAccuracy': accuracies.reduce((a, b) => a > b ? a : b),
+      'averageBattery':
+          (batteries.reduce((a, b) => a + b) / batteries.length).round(),
+      'averageSignal':
+          (signals.reduce((a, b) => a + b) / signals.length).round(),
+      'totalDataPoints': history.length,
+      'uptimePercent': _calculateUptime(history),
+    };
+  }
+
+  double _calculateUptime(List<DeviceHistory> history) {
+    if (history.length < 2) return 100.0;
+    
+    int goodReadings = history.where((h) => h.signalStrength > 30).length;
+    return (goodReadings / history.length) * 100;
+  }
+
+  Future<void> clearAllDeviceHistory(String deviceId) async {
+    if (!_authService.isLoggedIn) return;
+
+    try {
+      final snapshot = await _historyCollection(deviceId).get();
+      final batch = _firestore.batch();
+      for (var doc in snapshot.docs) {
+        batch.delete(doc.reference);
+      }
+      await batch.commit();
+    } catch (e) {
+      print('Error clearing history: $e');
+    }
   }
 }

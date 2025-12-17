@@ -1,5 +1,4 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class AuthService {
   static final AuthService _instance = AuthService._internal();
@@ -11,6 +10,8 @@ class AuthService {
   User? get currentUser => _auth.currentUser;
   String? get currentUserId => _auth.currentUser?.uid;
   bool get isLoggedIn => _auth.currentUser != null;
+  String get displayName => _auth.currentUser?.displayName ?? 'User';
+  String get email => _auth.currentUser?.email ?? '';
 
   Stream<User?> get authStateChanges => _auth.authStateChanges();
 
@@ -20,14 +21,14 @@ class AuthService {
     required String name,
   }) async {
     try {
-      final UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
+      final UserCredential userCredential =
+          await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
 
       await userCredential.user?.updateDisplayName(name);
-
-      await _saveLoginState(true);
+      await userCredential.user?.reload();
 
       return {
         'success': true,
@@ -60,12 +61,11 @@ class AuthService {
     required String password,
   }) async {
     try {
-      final UserCredential userCredential = await _auth.signInWithEmailAndPassword(
+      final UserCredential userCredential =
+          await _auth.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
-
-      await _saveLoginState(true);
 
       return {
         'success': true,
@@ -87,6 +87,9 @@ class AuthService {
         case 'user-disabled':
           message = 'This account has been disabled.';
           break;
+        case 'invalid-credential':
+          message = 'Invalid email or password.';
+          break;
         default:
           message = 'Login failed: ${e.message}';
       }
@@ -98,7 +101,6 @@ class AuthService {
 
   Future<void> logout() async {
     await _auth.signOut();
-    await _saveLoginState(false);
   }
 
   Future<Map<String, dynamic>> resetPassword(String email) async {
@@ -126,20 +128,7 @@ class AuthService {
     }
   }
 
-  Future<void> _saveLoginState(bool isLoggedIn) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('is_logged_in', isLoggedIn);
-  }
-
-  Future<bool> checkLoginState() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool('is_logged_in') ?? false;
-  }
-
-  Future<Map<String, dynamic>> updateProfile({
-    String? displayName,
-    String? photoURL,
-  }) async {
+  Future<Map<String, dynamic>> updateProfile({String? displayName}) async {
     try {
       final user = _auth.currentUser;
       if (user == null) {
@@ -149,15 +138,15 @@ class AuthService {
       if (displayName != null) {
         await user.updateDisplayName(displayName);
       }
-      if (photoURL != null) {
-        await user.updatePhotoURL(photoURL);
-      }
 
       await user.reload();
 
       return {'success': true, 'message': 'Profile updated successfully'};
     } catch (e) {
-      return {'success': false, 'message': 'Failed to update profile: ${e.toString()}'};
+      return {
+        'success': false,
+        'message': 'Failed to update profile: ${e.toString()}'
+      };
     }
   }
 
@@ -169,7 +158,6 @@ class AuthService {
       }
 
       await user.delete();
-      await _saveLoginState(false);
 
       return {'success': true, 'message': 'Account deleted successfully'};
     } on FirebaseAuthException catch (e) {
@@ -179,7 +167,10 @@ class AuthService {
           'message': 'Please log in again to delete your account.',
         };
       }
-      return {'success': false, 'message': 'Failed to delete account: ${e.message}'};
+      return {
+        'success': false,
+        'message': 'Failed to delete account: ${e.message}'
+      };
     } catch (e) {
       return {'success': false, 'message': 'An error occurred: ${e.toString()}'};
     }

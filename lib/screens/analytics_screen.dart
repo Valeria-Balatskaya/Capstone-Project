@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
-import '../services/analytics_service.dart';
-import '../services/device_service.dart';
+import '../models/device.dart';
 import '../models/device_history.dart';
-import 'app_drawer.dart';
-import 'live_tracking_screen.dart';
+import '../services/device_service.dart';
+import '../widgets/app_drawer.dart';
 
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
@@ -14,15 +13,13 @@ class AnalyticsScreen extends StatefulWidget {
 }
 
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
-  final AnalyticsService _analyticsService = AnalyticsService();
   final DeviceService _deviceService = DeviceService();
-
-  List<Map<String, dynamic>> devices = [];
-  String? selectedDeviceId;
-  List<DeviceHistory> history = [];
-  Map<String, dynamic> statistics = {};
+  List<Device> _devices = [];
+  Device? _selectedDevice;
+  List<DeviceHistory> _history = [];
+  Map<String, dynamic>? _statistics;
   bool _isLoading = true;
-  String _timeRange = '24h';
+  String _timeRange = '7d';
 
   @override
   void initState() {
@@ -32,142 +29,209 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
-
-    final loadedDevices = await _deviceService.loadDevices();
-    setState(() {
-      devices = loadedDevices;
-      if (devices.isNotEmpty && selectedDeviceId == null) {
-        selectedDeviceId = devices.first['id'];
+    
+    _deviceService.watchDevices().listen((devices) {
+      if (mounted) {
+        setState(() {
+          _devices = devices;
+          if (_selectedDevice == null && devices.isNotEmpty) {
+            _selectedDevice = devices.first;
+            _loadDeviceAnalytics();
+          }
+          _isLoading = false;
+        });
       }
     });
-
-    if (selectedDeviceId != null) {
-      await _loadDeviceAnalytics();
-    }
-
-    setState(() => _isLoading = false);
   }
 
   Future<void> _loadDeviceAnalytics() async {
-    if (selectedDeviceId == null) return;
-
-    DateTime? since;
-    switch (_timeRange) {
-      case '24h':
-        since = DateTime.now().subtract(const Duration(hours: 24));
-        break;
-      case '7d':
-        since = DateTime.now().subtract(const Duration(days: 7));
-        break;
-      case '30d':
-        since = DateTime.now().subtract(const Duration(days: 30));
-        break;
-      default:
-        since = null;
+    if (_selectedDevice == null) return;
+    
+    setState(() => _isLoading = true);
+    
+    try {
+      int limit;
+      DateTime? since;
+      final now = DateTime.now();
+      
+      switch (_timeRange) {
+        case '24h':
+          limit = 24;
+          since = now.subtract(const Duration(hours: 24));
+          break;
+        case '7d':
+          limit = 168;
+          since = now.subtract(const Duration(days: 7));
+          break;
+        case '30d':
+          limit = 720;
+          since = now.subtract(const Duration(days: 30));
+          break;
+        default:
+          limit = 168;
+          since = now.subtract(const Duration(days: 7));
+      }
+      
+      final history = await _deviceService.getDeviceHistory(
+        _selectedDevice!.id,
+        limit: limit,
+        since: since,
+      );
+      
+      final stats = _calculateStatisticsFromHistory(history);
+      
+      setState(() {
+        _history = history;
+        _statistics = stats;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() => _isLoading = false);
     }
-
-    final deviceHistory = await _analyticsService.getHistory(selectedDeviceId!, since: since, limit: 100);
-    final stats = await _analyticsService.getStatistics(selectedDeviceId!, since: since);
-
-    setState(() {
-      history = deviceHistory;
-      statistics = stats;
-    });
+  }
+  
+  Map<String, dynamic> _calculateStatisticsFromHistory(List<DeviceHistory> history) {
+    if (history.isEmpty) {
+      return {
+        'averageBattery': 0,
+        'averageAccuracy': 0.0,
+        'averageSignal': 0,
+        'totalDataPoints': 0,
+      };
+    }
+    
+    final batteries = history.map((h) => h.battery).toList();
+    final accuracies = history.map((h) => h.accuracy).toList();
+    final signals = history.map((h) => h.signalStrength).toList();
+    
+    return {
+      'averageBattery': (batteries.reduce((a, b) => a + b) / batteries.length).round(),
+      'averageAccuracy': accuracies.reduce((a, b) => a + b) / accuracies.length,
+      'averageSignal': (signals.reduce((a, b) => a + b) / signals.length).round(),
+      'totalDataPoints': history.length,
+    };
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return Scaffold(
-        appBar: AppBar(
-          title: const Text('Analytics'),
-          backgroundColor: Colors.blue.shade800,
-          foregroundColor: Colors.white,
-        ),
-        body: const Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    if (devices.isEmpty) {
-      return Scaffold(
-        appBar: AppBar(
-          title: const Text('Analytics'),
-          backgroundColor: Colors.blue.shade800,
-          foregroundColor: Colors.white,
-        ),
-        drawer: const AppDrawer(currentRoute: 'analytics'),
-        body: const Center(
-          child: Text('No devices available for analytics'),
-        ),
-      );
-    }
-
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Analytics Dashboard'),
+        title: const Text('Analytics'),
         backgroundColor: Colors.blue.shade800,
         foregroundColor: Colors.white,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _loadData,
-          ),
-          IconButton(
-            icon: const Icon(Icons.home),
-            onPressed: () {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (context) => const LiveTrackingScreen()),
-              );
-            },
+            onPressed: _loadDeviceAnalytics,
           ),
         ],
       ),
       drawer: const AppDrawer(currentRoute: 'analytics'),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildDeviceSelector(),
-            const SizedBox(height: 16),
-            _buildTimeRangeSelector(),
+      body: _isLoading && _devices.isEmpty
+          ? const Center(child: CircularProgressIndicator())
+          : _devices.isEmpty
+              ? _buildEmptyState()
+              : _buildContent(),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.analytics, size: 80, color: Colors.grey.shade400),
+          const SizedBox(height: 16),
+          Text(
+            'No devices to analyze',
+            style: TextStyle(fontSize: 18, color: Colors.grey.shade600),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Add a device to see analytics',
+            style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContent() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildDeviceSelector(),
+          const SizedBox(height: 16),
+          _buildTimeRangeSelector(),
+          const SizedBox(height: 20),
+          if (_statistics != null) ...[
+            _buildOverviewCards(),
             const SizedBox(height: 20),
-            _buildStatisticsCards(),
+          ],
+          if (_history.isNotEmpty) ...[
+            _buildBatteryChart(),
+            const SizedBox(height: 20),
+            _buildSignalChart(),
             const SizedBox(height: 20),
             _buildAccuracyChart(),
             const SizedBox(height: 20),
-            _buildBatteryChart(),
-            const SizedBox(height: 20),
-            _buildSimulateButton(),
-          ],
-        ),
+            _buildHourlyActivityChart(),
+          ] else if (!_isLoading)
+            _buildNoDataCard(),
+        ],
       ),
     );
   }
 
   Widget _buildDeviceSelector() {
     return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Select Device', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            Text(
+              'Select Device',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey.shade700,
+              ),
+            ),
             const SizedBox(height: 8),
-            DropdownButton<String>(
-              value: selectedDeviceId,
+            DropdownButton<Device>(
+              value: _selectedDevice,
               isExpanded: true,
-              items: devices.map((device) {
-                return DropdownMenuItem<String>(
-                  value: device['id'],
-                  child: Text(device['name']),
+              underline: const SizedBox(),
+              items: _devices.map((device) {
+                return DropdownMenuItem<Device>(
+                  value: device,
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.sensors,
+                        size: 20,
+                        color: device.status == 'online' ? Colors.green : Colors.grey,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(child: Text(device.name)),
+                      Text(
+                        '${device.battery}%',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
                 );
               }).toList(),
-              onChanged: (value) {
-                setState(() {
-                  selectedDeviceId = value;
-                });
+              onChanged: (device) {
+                setState(() => _selectedDevice = device);
                 _loadDeviceAnalytics();
               },
             ),
@@ -182,117 +246,95 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       scrollDirection: Axis.horizontal,
       child: Row(
         children: [
-          _buildTimeRangeChip('24h', 'Last 24 Hours'),
-          _buildTimeRangeChip('7d', 'Last 7 Days'),
-          _buildTimeRangeChip('30d', 'Last 30 Days'),
-          _buildTimeRangeChip('all', 'All Time'),
+          _buildTimeChip('24h', 'Last 24 Hours'),
+          const SizedBox(width: 8),
+          _buildTimeChip('7d', 'Last 7 Days'),
+          const SizedBox(width: 8),
+          _buildTimeChip('30d', 'Last 30 Days'),
         ],
       ),
     );
   }
 
-  Widget _buildTimeRangeChip(String value, String label) {
+  Widget _buildTimeChip(String value, String label) {
     final isSelected = _timeRange == value;
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: FilterChip(
-        label: Text(label),
-        selected: isSelected,
-        onSelected: (selected) {
-          setState(() {
-            _timeRange = value;
-          });
-          _loadDeviceAnalytics();
-        },
-        backgroundColor: Colors.grey.shade200,
-        selectedColor: Colors.blue.shade100,
-      ),
+    return FilterChip(
+      label: Text(label),
+      selected: isSelected,
+      onSelected: (selected) {
+        setState(() => _timeRange = value);
+        _loadDeviceAnalytics();
+      },
+      backgroundColor: Colors.grey.shade200,
+      selectedColor: Colors.blue.shade100,
+      checkmarkColor: Colors.blue.shade800,
     );
   }
 
-  Widget _buildStatisticsCards() {
-    if (statistics.isEmpty || statistics['totalDataPoints'] == 0) {
-      return const Card(
-        child: Padding(
-          padding: EdgeInsets.all(16),
-          child: Text('No data available for this device. Click "Generate Sample Data" below.'),
-        ),
-      );
-    }
-
-    return Column(
+  Widget _buildOverviewCards() {
+    return GridView.count(
+      crossAxisCount: 2,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      mainAxisSpacing: 12,
+      crossAxisSpacing: 12,
+      childAspectRatio: 1.5,
       children: [
-        Row(
-          children: [
-            Expanded(child: _buildStatCard('Avg Accuracy', '${statistics['averageAccuracy'].toStringAsFixed(1)}m', Icons.gps_fixed, Colors.green)),
-            const SizedBox(width: 8),
-            Expanded(child: _buildStatCard('Best Accuracy', '${statistics['bestAccuracy'].toStringAsFixed(1)}m', Icons.star, Colors.orange)),
-          ],
+        _buildStatCard(
+          icon: Icons.battery_charging_full,
+          title: 'Avg Battery',
+          value: '${_statistics!['averageBattery'] ?? '-'}%',
+          color: Colors.green,
         ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(child: _buildStatCard('Avg Battery', '${statistics['averageBattery']}%', Icons.battery_charging_full, Colors.blue)),
-            const SizedBox(width: 8),
-            Expanded(child: _buildStatCard('Data Points', '${statistics['totalDataPoints']}', Icons.data_usage, Colors.purple)),
-          ],
+        _buildStatCard(
+          icon: Icons.signal_cellular_alt,
+          title: 'Avg Signal',
+          value: '${_statistics!['averageSignal'] ?? '-'}%',
+          color: Colors.blue,
+        ),
+        _buildStatCard(
+          icon: Icons.gps_fixed,
+          title: 'Avg Accuracy',
+          value: '${(_statistics!['averageAccuracy'] as double?)?.toStringAsFixed(1) ?? '-'}m',
+          color: Colors.orange,
+        ),
+        _buildStatCard(
+          icon: Icons.data_usage,
+          title: 'Data Points',
+          value: '${_statistics!['totalDataPoints'] ?? 0}',
+          color: Colors.purple,
         ),
       ],
     );
   }
 
-  Widget _buildStatCard(String title, String value, IconData icon, Color color) {
+  Widget _buildStatCard({
+    required IconData icon,
+    required String title,
+    required String value,
+    required Color color,
+  }) {
     return Card(
       elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12),
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: color, size: 32),
+            Icon(icon, color: color, size: 28),
             const SizedBox(height: 8),
-            Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
-            Text(title, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAccuracyChart() {
-    if (history.isEmpty) {
-      return const SizedBox();
-    }
-
-    final spots = history.asMap().entries.map((entry) {
-      return FlSpot(entry.key.toDouble(), entry.value.accuracy);
-    }).toList();
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Position Accuracy Over Time', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 200,
-              child: LineChart(
-                LineChartData(
-                  gridData: const FlGridData(show: true),
-                  titlesData: const FlTitlesData(show: false),
-                  borderData: FlBorderData(show: true),
-                  lineBarsData: [
-                    LineChartBarData(
-                      spots: spots,
-                      isCurved: true,
-                      color: Colors.blue,
-                      barWidth: 3,
-                      dotData: const FlDotData(show: false),
-                    ),
-                  ],
-                ),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: color,
               ),
+            ),
+            Text(
+              title,
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
             ),
           ],
         ),
@@ -301,36 +343,133 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   Widget _buildBatteryChart() {
-    if (history.isEmpty) {
-      return const SizedBox();
-    }
+    return _buildChartCard(
+      title: 'Battery Level Over Time',
+      icon: Icons.battery_charging_full,
+      color: Colors.green,
+      spots: _history.asMap().entries.map((e) {
+        return FlSpot(e.key.toDouble(), e.value.battery.toDouble());
+      }).toList().reversed.toList(),
+      yAxisLabel: '%',
+      maxY: 100,
+    );
+  }
 
-    final spots = history.asMap().entries.map((entry) {
-      return FlSpot(entry.key.toDouble(), entry.value.battery.toDouble());
-    }).toList();
+  Widget _buildSignalChart() {
+    return _buildChartCard(
+      title: 'Signal Strength Over Time',
+      icon: Icons.signal_cellular_alt,
+      color: Colors.blue,
+      spots: _history.asMap().entries.map((e) {
+        return FlSpot(e.key.toDouble(), e.value.signalStrength.toDouble());
+      }).toList().reversed.toList(),
+      yAxisLabel: '%',
+      maxY: 100,
+    );
+  }
+
+  Widget _buildAccuracyChart() {
+    final maxAccuracy = _history.isEmpty
+        ? 20.0
+        : _history.map((h) => h.accuracy).reduce((a, b) => a > b ? a : b) + 5;
+
+    return _buildChartCard(
+      title: 'Position Accuracy Over Time',
+      icon: Icons.gps_fixed,
+      color: Colors.orange,
+      spots: _history.asMap().entries.map((e) {
+        return FlSpot(e.key.toDouble(), e.value.accuracy);
+      }).toList().reversed.toList(),
+      yAxisLabel: 'm',
+      maxY: maxAccuracy,
+      invertColors: true,
+    );
+  }
+
+  Widget _buildChartCard({
+    required String title,
+    required IconData icon,
+    required Color color,
+    required List<FlSpot> spots,
+    required String yAxisLabel,
+    required double maxY,
+    bool invertColors = false,
+  }) {
+    if (spots.length < 2) return const SizedBox();
 
     return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Battery Level Over Time', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
+            Row(
+              children: [
+                Icon(icon, color: color, size: 20),
+                const SizedBox(width: 8),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
             SizedBox(
               height: 200,
               child: LineChart(
                 LineChartData(
-                  gridData: const FlGridData(show: true),
-                  titlesData: const FlTitlesData(show: false),
-                  borderData: FlBorderData(show: true),
+                  gridData: FlGridData(
+                    show: true,
+                    drawVerticalLine: false,
+                    horizontalInterval: maxY / 4,
+                    getDrawingHorizontalLine: (value) {
+                      return FlLine(
+                        color: Colors.grey.shade200,
+                        strokeWidth: 1,
+                      );
+                    },
+                  ),
+                  titlesData: FlTitlesData(
+                    show: true,
+                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    bottomTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    leftTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        interval: maxY / 4,
+                        reservedSize: 40,
+                        getTitlesWidget: (value, meta) {
+                          return Text(
+                            '${value.toInt()}$yAxisLabel',
+                            style: TextStyle(
+                              color: Colors.grey.shade600,
+                              fontSize: 10,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                  borderData: FlBorderData(show: false),
+                  minY: 0,
+                  maxY: maxY,
                   lineBarsData: [
                     LineChartBarData(
-                      spots: spots,
+                      spots: spots.take(100).toList(),
                       isCurved: true,
-                      color: Colors.green,
-                      barWidth: 3,
+                      color: color,
+                      barWidth: 2,
                       dotData: const FlDotData(show: false),
+                      belowBarData: BarAreaData(
+                        show: true,
+                        color: color.withValues(alpha: 0.1),
+                      ),
                     ),
                   ],
                 ),
@@ -342,25 +481,111 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
-  Widget _buildSimulateButton() {
-    return SizedBox(
-      width: double.infinity,
-      child: ElevatedButton.icon(
-        onPressed: () async {
-          if (selectedDeviceId != null) {
-            await _analyticsService.simulateHistoryData(selectedDeviceId!);
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Sample data generated! Refresh to see charts.'), backgroundColor: Colors.green),
-            );
-            await _loadDeviceAnalytics();
-          }
-        },
-        icon: const Icon(Icons.science),
-        label: const Text('Generate Sample Data'),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.orange,
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.all(16),
+  Widget _buildHourlyActivityChart() {
+    final hourlyData = List.filled(24, 0);
+    for (var h in _history) {
+      hourlyData[h.timestamp.hour]++;
+    }
+
+    final maxCount = hourlyData.reduce((a, b) => a > b ? a : b).toDouble();
+    if (maxCount == 0) return const SizedBox();
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.access_time, color: Colors.purple, size: 20),
+                SizedBox(width: 8),
+                Text(
+                  'Activity by Hour',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              height: 150,
+              child: BarChart(
+                BarChartData(
+                  alignment: BarChartAlignment.spaceAround,
+                  maxY: maxCount + 1,
+                  barTouchData: BarTouchData(enabled: false),
+                  titlesData: FlTitlesData(
+                    show: true,
+                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        getTitlesWidget: (value, meta) {
+                          if (value % 6 == 0) {
+                            return Text(
+                              '${value.toInt()}h',
+                              style: TextStyle(
+                                color: Colors.grey.shade600,
+                                fontSize: 10,
+                              ),
+                            );
+                          }
+                          return const Text('');
+                        },
+                        reservedSize: 20,
+                      ),
+                    ),
+                  ),
+                  borderData: FlBorderData(show: false),
+                  gridData: const FlGridData(show: false),
+                  barGroups: hourlyData.asMap().entries.map((e) {
+                    return BarChartGroupData(
+                      x: e.key,
+                      barRods: [
+                        BarChartRodData(
+                          toY: e.value.toDouble(),
+                          color: Colors.purple.withValues(alpha: 0.7),
+                          width: 8,
+                          borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
+                        ),
+                      ],
+                    );
+                  }).toList(),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNoDataCard() {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          children: [
+            Icon(Icons.analytics, size: 60, color: Colors.grey.shade400),
+            const SizedBox(height: 16),
+            Text(
+              'No data available for this period',
+              style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Data is collected automatically as the device operates',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+              textAlign: TextAlign.center,
+            ),
+          ],
         ),
       ),
     );

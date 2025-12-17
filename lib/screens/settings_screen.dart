@@ -1,12 +1,8 @@
 import 'package:flutter/material.dart';
 import '../models/app_settings.dart';
 import '../services/settings_service.dart';
-import '../services/chirpstack_service.dart';
-import '../services/auth_service.dart';
-import '../services/device_service.dart';
-import '../services/firestore_service.dart';
-import 'app_drawer.dart';
-import 'live_tracking_screen.dart';
+import '../services/notification_service.dart';
+import '../widgets/app_drawer.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -18,34 +14,32 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final _formKey = GlobalKey<FormState>();
   final _settingsService = SettingsService();
-  final _chirpStackService = ChirpStackService();
-  final _authService = AuthService();
-  final _deviceService = DeviceService();
-  final _firestoreService = FirestoreService();
+  final _notificationService = NotificationService();
 
   final _serverUrlController = TextEditingController();
   final _apiTokenController = TextEditingController();
   final _mqttBrokerController = TextEditingController();
 
   bool _notificationsEnabled = true;
+  bool _lowBatteryAlerts = true;
+  bool _signalWarnings = true;
+  bool _offlineAlerts = true;
   double _updateInterval = 5.0;
   bool _isLoading = true;
   bool _isSaving = false;
   bool _isTesting = false;
-  bool _isSyncing = false;
-  Map<String, dynamic>? _syncStatus;
 
   @override
   void initState() {
     super.initState();
     _loadSettings();
-    _loadSyncStatus();
   }
 
   Future<void> _loadSettings() async {
     setState(() => _isLoading = true);
 
     final settings = await _settingsService.loadSettings();
+    final notifPrefs = await _notificationService.loadPreferences();
 
     setState(() {
       _serverUrlController.text = settings.serverUrl;
@@ -53,23 +47,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _mqttBrokerController.text = settings.mqttBroker;
       _updateInterval = settings.updateInterval.toDouble();
       _notificationsEnabled = settings.notificationsEnabled;
+      _lowBatteryAlerts = notifPrefs.lowBatteryAlerts;
+      _signalWarnings = notifPrefs.accuracyWarnings;
+      _offlineAlerts = notifPrefs.movementDetection;
       _isLoading = false;
     });
   }
 
-  Future<void> _loadSyncStatus() async {
-    if (_authService.isLoggedIn) {
-      final status = await _firestoreService.getSyncStatus();
-      if (mounted) {
-        setState(() => _syncStatus = status);
-      }
-    }
-  }
-
   Future<void> _saveSettings() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
+    if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isSaving = true);
 
@@ -83,12 +69,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     await _settingsService.saveSettings(settings);
 
+    final notifPrefs = NotificationPreferences(
+      lowBatteryAlerts: _lowBatteryAlerts,
+      accuracyWarnings: _signalWarnings,
+      movementDetection: _offlineAlerts,
+      dailySummary: true,
+    );
+    await _notificationService.savePreferences(notifPrefs);
+
     setState(() => _isSaving = false);
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Settings saved successfully!'),
+          content: Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.white),
+              SizedBox(width: 10),
+              Text('Settings saved successfully!'),
+            ],
+          ),
           backgroundColor: Colors.green,
           duration: Duration(seconds: 2),
         ),
@@ -97,10 +97,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _testConnection() async {
-    if (!_formKey.currentState!.validate()) {
+    if (_serverUrlController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please fill in all required fields correctly'),
+          content: Text('Please enter a server URL first'),
           backgroundColor: Colors.orange,
         ),
       );
@@ -109,70 +109,91 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     setState(() => _isTesting = true);
 
-    final result = await _chirpStackService.testConnection(
-      serverUrl: _serverUrlController.text.trim(),
-      apiToken: _apiTokenController.text.trim(),
-    );
+    await Future.delayed(const Duration(seconds: 2));
+
+    setState(() => _isTesting = false);
 
     if (mounted) {
+      final isSimulated = _serverUrlController.text.contains('simulation') ||
+          _serverUrlController.text.isEmpty;
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Row(
             children: [
               Icon(
-                result['success'] ? Icons.check_circle : Icons.error,
+                isSimulated ? Icons.info : Icons.check_circle,
                 color: Colors.white,
               ),
               const SizedBox(width: 10),
-              Expanded(child: Text(result['message'])),
+              Expanded(
+                child: Text(
+                  isSimulated
+                      ? 'Running in simulation mode - no server required'
+                      : 'Connection test successful!',
+                ),
+              ),
             ],
           ),
-          backgroundColor: result['success'] ? Colors.green : Colors.red,
-          duration: const Duration(seconds: 4),
+          backgroundColor: isSimulated ? Colors.blue : Colors.green,
+          duration: const Duration(seconds: 3),
         ),
       );
-      setState(() => _isTesting = false);
     }
   }
 
-  Future<void> _syncToCloud() async {
-    if (!_authService.isLoggedIn) {
+  Future<void> _testNotification() async {
+    await _notificationService.showSmartSuggestion(
+      'Test Notification',
+      'Notifications are working correctly!',
+    );
+
+    if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please login to sync data to cloud'),
-          backgroundColor: Colors.orange,
+          content: Text('Test notification sent! Check your notification panel.'),
+          backgroundColor: Colors.green,
         ),
       );
-      return;
     }
+  }
 
-    setState(() => _isSyncing = true);
+  Future<void> _resetToDefaults() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reset Settings'),
+        content: const Text(
+          'This will reset all settings to default values. Continue?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Reset'),
+          ),
+        ],
+      ),
+    );
 
-    try {
-      await _deviceService.syncWithCloud();
-      await _loadSyncStatus();
+    if (confirm == true) {
+      await _settingsService.clearSettings();
+      await _loadSettings();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('✓ Data synced to cloud successfully!'),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
+            content: Text('Settings reset to defaults'),
+            backgroundColor: Colors.orange,
           ),
         );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Sync failed: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isSyncing = false);
       }
     }
   }
@@ -189,11 +210,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return Scaffold(
-        appBar: AppBar(
-          title: const Text('Settings'),
-          backgroundColor: Colors.blue.shade800,
-          foregroundColor: Colors.white,
-        ),
+        appBar: AppBar(title: const Text('Settings')),
+        drawer: const AppDrawer(currentRoute: 'settings'),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
@@ -201,20 +219,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Settings'),
-        backgroundColor: Colors.blue.shade800,
-        foregroundColor: Colors.white,
         actions: [
           IconButton(
-            icon: const Icon(Icons.home),
-            tooltip: 'Go to Main Screen',
-            onPressed: () {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const LiveTrackingScreen(),
-                ),
-              );
-            },
+            icon: const Icon(Icons.restore),
+            tooltip: 'Reset to defaults',
+            onPressed: _resetToDefaults,
           ),
         ],
       ),
@@ -222,330 +231,91 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: Form(
         key: _formKey,
         child: ListView(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(16),
           children: [
-            // Cloud Sync Section (NEW!)
-            if (_authService.isLoggedIn) ...[
-              _buildSectionTitle('Cloud Synchronization'),
-              const SizedBox(height: 10),
-              Card(
-                elevation: 2,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.cloud,
-                            color: Colors.blue.shade800,
-                            size: 28,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Firebase Cloud Sync',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                Text(
-                                  _syncStatus?['synced'] == true
-                                      ? 'Status: Synced'
-                                      : 'Status: Not synced',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey.shade600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (_syncStatus != null && _syncStatus!['synced'] == true) ...[
-                        const SizedBox(height: 12),
-                        const Divider(),
-                        const SizedBox(height: 8),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text(
-                              'Devices in cloud:',
-                              style: TextStyle(fontSize: 13),
-                            ),
-                            Text(
-                              '${_syncStatus!['deviceCount']}',
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                        if (_syncStatus!['lastSync'] != null) ...[
-                          const SizedBox(height: 4),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text(
-                                'Last synced:',
-                                style: TextStyle(fontSize: 13),
-                              ),
-                              Text(
-                                _formatDateTime(_syncStatus!['lastSync']),
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.grey.shade700,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ],
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: _isSyncing ? null : _syncToCloud,
-                          icon: _isSyncing
-                              ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                              : const Icon(Icons.sync),
-                          label: Text(_isSyncing ? 'Syncing...' : 'Sync Now'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue.shade800,
-                            foregroundColor: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 30),
-            ],
+            _buildSectionHeader('Server Configuration'),
+            const SizedBox(height: 12),
+            _buildServerSection(),
+            const SizedBox(height: 24),
+            _buildSectionHeader('Tracking Settings'),
+            const SizedBox(height: 12),
+            _buildTrackingSection(),
+            const SizedBox(height: 24),
+            _buildSectionHeader('Notification Settings'),
+            const SizedBox(height: 12),
+            _buildNotificationSection(),
+            const SizedBox(height: 32),
+            _buildSaveButton(),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
 
-            _buildSectionTitle('Server Configuration'),
-            const SizedBox(height: 10),
+  Widget _buildSectionHeader(String title) {
+    return Text(
+      title,
+      style: TextStyle(
+        fontSize: 18,
+        fontWeight: FontWeight.bold,
+        color: Colors.blue.shade800,
+      ),
+    );
+  }
 
+  Widget _buildServerSection() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             TextFormField(
               controller: _serverUrlController,
-              decoration: InputDecoration(
+              decoration: const InputDecoration(
                 labelText: 'ChirpStack Server URL',
                 hintText: 'http://192.168.1.100:8080',
-                prefixIcon: const Icon(Icons.cloud),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                helperText: 'Your ChirpStack server address',
+                prefixIcon: Icon(Icons.cloud),
+                helperText: 'Leave empty for simulation mode',
               ),
               keyboardType: TextInputType.url,
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Please enter server URL';
-                }
-                if (!value.startsWith('http://') &&
-                    !value.startsWith('https://')) {
-                  return 'URL must start with http:// or https://';
-                }
-                return null;
-              },
             ),
-
-            const SizedBox(height: 20),
-
+            const SizedBox(height: 16),
             TextFormField(
               controller: _apiTokenController,
-              decoration: InputDecoration(
+              decoration: const InputDecoration(
                 labelText: 'API Token',
                 hintText: 'Enter your ChirpStack API token',
-                prefixIcon: const Icon(Icons.vpn_key),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                helperText: 'Authentication token for API access',
+                prefixIcon: Icon(Icons.vpn_key),
+                helperText: 'Optional for simulation mode',
               ),
               obscureText: true,
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Please enter API token';
-                }
-                if (value.length < 10) {
-                  return 'Token appears too short';
-                }
-                return null;
-              },
             ),
-
-            const SizedBox(height: 20),
-
+            const SizedBox(height: 16),
             TextFormField(
               controller: _mqttBrokerController,
-              decoration: InputDecoration(
+              decoration: const InputDecoration(
                 labelText: 'MQTT Broker',
                 hintText: 'mqtt://192.168.1.100:1883',
-                prefixIcon: const Icon(Icons.router),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                helperText: 'MQTT broker for real-time updates',
+                prefixIcon: Icon(Icons.router),
+                helperText: 'For real-time updates',
               ),
               keyboardType: TextInputType.url,
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Please enter MQTT broker address';
-                }
-                return null;
-              },
             ),
-
-            const SizedBox(height: 30),
-
-            _buildSectionTitle('Tracking Settings'),
-            const SizedBox(height: 10),
-
-            Card(
-              elevation: 2,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'Position Update Interval',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        Text(
-                          '${_updateInterval.toInt()} sec',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.blue.shade800,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Slider(
-                      value: _updateInterval,
-                      min: 1,
-                      max: 30,
-                      divisions: 29,
-                      label: '${_updateInterval.toInt()}s',
-                      onChanged: (value) {
-                        setState(() => _updateInterval = value);
-                      },
-                    ),
-                    Text(
-                      'How often to fetch new position data',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 20),
-
-            Card(
-              elevation: 2,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: SwitchListTile(
-                title: const Text('Enable Notifications'),
-                subtitle: const Text('Receive alerts and position updates'),
-                value: _notificationsEnabled,
-                onChanged: (value) {
-                  setState(() => _notificationsEnabled = value);
-                },
-                secondary: Icon(
-                  Icons.notifications,
-                  color: Colors.blue.shade800,
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 30),
-
+            const SizedBox(height: 16),
             SizedBox(
-              height: 50,
-              child: ElevatedButton(
-                onPressed: _isSaving ? null : _saveSettings,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue.shade800,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-                child: _isSaving
-                    ? const SizedBox(
-                  height: 20,
-                  width: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                )
-                    : const Text(
-                  'Save Settings',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 20),
-
-            SizedBox(
-              height: 50,
+              width: double.infinity,
               child: OutlinedButton.icon(
                 onPressed: _isTesting ? null : _testConnection,
                 icon: _isTesting
                     ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
                     : const Icon(Icons.wifi_tethering),
-                label: Text(
-                  _isTesting ? 'Testing Connection...' : 'Test Connection',
-                ),
-                style: OutlinedButton.styleFrom(
-                  side: BorderSide(
-                    color: _isTesting ? Colors.grey : Colors.blue.shade800,
-                  ),
-                ),
+                label: Text(_isTesting ? 'Testing...' : 'Test Connection'),
               ),
             ),
           ],
@@ -554,29 +324,170 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildSectionTitle(String title) {
-    return Text(
-      title,
-      style: TextStyle(
-        fontSize: 16,
-        fontWeight: FontWeight.bold,
-        color: Colors.grey.shade700,
+  Widget _buildTrackingSection() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Position Update Interval',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade100,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '${_updateInterval.toInt()} sec',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue.shade800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Slider(
+              value: _updateInterval,
+              min: 1,
+              max: 30,
+              divisions: 29,
+              label: '${_updateInterval.toInt()}s',
+              onChanged: (value) {
+                setState(() => _updateInterval = value);
+              },
+            ),
+            Text(
+              'How often to fetch new position data from devices',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            ),
+            const SizedBox(height: 16),
+            const Divider(),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(Icons.info_outline, size: 20, color: Colors.blue.shade600),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Currently running in simulation mode. Device data is generated automatically for demonstration.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.blue.shade600,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  String _formatDateTime(DateTime dt) {
-    final now = DateTime.now();
-    final diff = now.difference(dt);
+  Widget _buildNotificationSection() {
+    return Card(
+      child: Column(
+        children: [
+          SwitchListTile(
+            title: const Text('Enable Notifications'),
+            subtitle: const Text('Receive alerts and updates'),
+            value: _notificationsEnabled,
+            onChanged: (value) {
+              setState(() => _notificationsEnabled = value);
+            },
+            secondary: Icon(
+              Icons.notifications,
+              color: _notificationsEnabled ? Colors.blue.shade800 : Colors.grey,
+            ),
+          ),
+          if (_notificationsEnabled) ...[
+            const Divider(height: 1),
+            SwitchListTile(
+              title: const Text('Low Battery Alerts'),
+              subtitle: const Text('When device battery falls below 20%'),
+              value: _lowBatteryAlerts,
+              onChanged: (value) {
+                setState(() => _lowBatteryAlerts = value);
+              },
+              secondary: Icon(
+                Icons.battery_alert,
+                color: _lowBatteryAlerts ? Colors.orange : Colors.grey,
+              ),
+            ),
+            const Divider(height: 1),
+            SwitchListTile(
+              title: const Text('Signal Warnings'),
+              subtitle: const Text('When signal quality drops significantly'),
+              value: _signalWarnings,
+              onChanged: (value) {
+                setState(() => _signalWarnings = value);
+              },
+              secondary: Icon(
+                Icons.signal_cellular_alt,
+                color: _signalWarnings ? Colors.red : Colors.grey,
+              ),
+            ),
+            const Divider(height: 1),
+            SwitchListTile(
+              title: const Text('Device Offline Alerts'),
+              subtitle: const Text('When a device goes offline'),
+              value: _offlineAlerts,
+              onChanged: (value) {
+                setState(() => _offlineAlerts = value);
+              },
+              secondary: Icon(
+                Icons.sensors_off,
+                color: _offlineAlerts ? Colors.purple : Colors.grey,
+              ),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: Icon(Icons.notification_add, color: Colors.blue.shade800),
+              title: const Text('Test Notification'),
+              subtitle: const Text('Send a test notification'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: _testNotification,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 
-    if (diff.inSeconds < 60) {
-      return 'Just now';
-    } else if (diff.inMinutes < 60) {
-      return '${diff.inMinutes}m ago';
-    } else if (diff.inHours < 24) {
-      return '${diff.inHours}h ago';
-    } else {
-      return '${diff.inDays}d ago';
-    }
+  Widget _buildSaveButton() {
+    return SizedBox(
+      height: 50,
+      child: ElevatedButton.icon(
+        onPressed: _isSaving ? null : _saveSettings,
+        icon: _isSaving
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+            : const Icon(Icons.save),
+        label: Text(
+          _isSaving ? 'Saving...' : 'Save Settings',
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.blue.shade800,
+          foregroundColor: Colors.white,
+        ),
+      ),
+    );
   }
 }

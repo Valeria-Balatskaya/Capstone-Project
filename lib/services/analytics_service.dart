@@ -89,6 +89,7 @@ class AnalyticsService {
 
     for (int i = 0; i < 50; i++) {
       final entry = DeviceHistory(
+        id: 'sim_${deviceId}_$i',
         deviceId: deviceId,
         latitude: 51.7592 + (i * 0.0001),
         longitude: 19.4560 + (i * 0.0001),
