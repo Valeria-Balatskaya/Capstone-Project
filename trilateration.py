@@ -39,12 +39,18 @@ class ReceiverPosition:
 # Receiver positions in meters (measure these!)
 RECEIVERS = {
     "A": ReceiverPosition(x=0.0, y=0.0, name="A"),   # Mac - set as origin
-    "B": ReceiverPosition(x=0.0, y=6.0, name="B"),   # Windows #2 (stationary)
-    "C": ReceiverPosition(x=8.0, y=6.0, name="C"),   # Windows #3 (stationary)
+    "B": ReceiverPosition(x=0.0, y=3.0, name="B"),   # Windows #2 (stationary)
+    "C": ReceiverPosition(x=3.0, y=3.0, name="C"),   # Windows #3 (stationary)
 }
 
 # RSSI calibration values (calibrate these!)
-RSSI_AT_1M = -45      # RSSI value measured at exactly 1 meter distance
+# Per-receiver calibration - use measured RSSI at exactly 1 meter for each receiver
+RSSI_AT_1M_PER_RECEIVER = {
+    "A": -17,  # Measured: -17 dBm at 1m
+    "B": -23,  # Measured: -23 dBm at 1m
+    "C": -68,  # Measured: -68 dBm at 1m (weak antenna/orientation)
+}
+RSSI_AT_1M = -36      # Fallback global value (not used if per-receiver defined)
 PATH_LOSS_N = 2.5     # Path loss exponent: 2.0=open, 2.5=indoor, 3.5=walls
 
 # ============================================================
@@ -202,7 +208,9 @@ class PositionTracker:
             rssi_values = sorted([r["rssi"] for r in readings])
             median_rssi = rssi_values[len(rssi_values) // 2]
             
-            distances[rid] = rssi_to_distance(median_rssi)
+            # Use per-receiver calibration if available
+            rssi_1m = RSSI_AT_1M_PER_RECEIVER.get(rid, RSSI_AT_1M)
+            distances[rid] = rssi_to_distance(median_rssi, rssi_1m)
         
         position = trilaterate(distances)
         
@@ -225,7 +233,9 @@ class PositionTracker:
             if readings:
                 rssi_values = sorted([r["rssi"] for r in readings])
                 median_rssi = rssi_values[len(rssi_values) // 2]
-                distances[rid] = rssi_to_distance(median_rssi)
+                # Use per-receiver calibration if available
+                rssi_1m = RSSI_AT_1M_PER_RECEIVER.get(rid, RSSI_AT_1M)
+                distances[rid] = rssi_to_distance(median_rssi, rssi_1m)
         
         return distances
     
