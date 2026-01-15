@@ -1,272 +1,435 @@
-# 4-Laptop LoRa Setup
+# LoRa Indoor Positioning System
 
-## Architecture
+A distributed RSSI/SNR log collection system for indoor positioning research using LoRa technology. Collects signal strength data from multiple receivers and calculates tag position via trilateration.
+
+## Overview
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    MAC LAPTOP (Server)                      │
-│  ┌─────────────┐                        ┌─────────────────┐ │
-│  │ RECEIVER A  │                        │   WebSocket     │ │
-│  │  (Local)    │                        │   Server :8765  │ │
-│  │             │                        │                 │ │
-│  └──────┬──────┘                        └────────┬────────┘ │
-│         │ USB                                    │          │
-│  /dev/cu.usbserial-XXXX                          │          │
-└──────────────────────────────────────────────────┼──────────┘
-                                                   │ WebSocket
-          ┌────────────────────────────────────────┼─────────────────────────┐
-          │                                        │                         │
-          ▼                                        ▼                         ▼
-┌─────────────────────┐  ┌──────────────────────────────┐  ┌──────────────────────────────┐
-│  WINDOWS LAPTOP #1  │  │    WINDOWS LAPTOP #2         │  │    WINDOWS LAPTOP #3         │
-│     (MOBILE TAG)    │  │       (RECEIVER B)           │  │       (RECEIVER C)           │
-│  ┌───────────────┐  │  │  ┌─────────────────────────┐ │  │  ┌─────────────────────────┐ │
-│  │     TAG       │  │  │  │      RECEIVER B         │ │  │  │      RECEIVER C         │ │
-│  │   (Sender)    │  │  │  │                         │ │  │  │                         │ │
-│  │windows_tag.py │  │  │  │  windows_receiver_B.py  │ │  │  │  windows_receiver_C.py  │ │
-│  └───────┬───────┘  │  │  └──────────┬──────────────┘ │  │  └──────────┬──────────────┘ │
-│          │ USB      │  │             │ USB (COM5/7)   │  │             │ USB (COM5/7)   │
-│       COM5/7        │  │             │                │  │             │                │
-│                     │  │             ▼ WebSocket      │  │             ▼ WebSocket      │
-│  📍 MOVE AROUND!    │  │       To Mac :8765/data     │  │       To Mac :8765/data     │
-└─────────────────────┘  └─────────────────────────────┘  └─────────────────────────────┘
-        │
-        └──────────▶ LoRa packets broadcast to all 3 receivers (A, B, C)
+                              ┌─────────────────────────────┐
+                              │       CENTRAL SERVER        │
+                              │  ┌───────────┐ ┌──────────┐ │
+                              │  │ Receiver  │ │WebSocket │ │
+                              │  │  A (opt)  │ │Server    │ │
+                              │  └─────┬─────┘ └────┬─────┘ │
+                              │        │USB         │:8765  │
+                              └────────┼────────────┼───────┘
+                                       │            │
+    ┌──────────────────────────────────┼────────────┼──────────────────────────────────┐
+    │                                  │            │                                  │
+    ▼                                  ▼            ▼                                  ▼
+┌────────────┐                  ┌────────────┐ ┌────────────┐                  ┌────────────┐
+│  RECEIVER  │                  │  RECEIVER  │ │  RECEIVER  │                  │    TAG     │
+│     B      │                  │     C      │ │     ...    │                  │  (Mobile)  │
+│            │                  │            │ │            │                  │            │
+│  Streams   │──── WebSocket ──▶│  Streams   │ │  Streams   │                  │ Broadcasts │
+│  RSSI/SNR  │                  │  RSSI/SNR  │ │  RSSI/SNR  │                  │   LoRa     │
+└────────────┘                  └────────────┘ └────────────┘                  └────────────┘
+      ▲                               ▲              ▲                               │
+      │                               │              │                               │
+      └───────────────────────────────┴──────────────┴───────────────────────────────┘
+                                    LoRa Signal (868 MHz)
 ```
 
-## Files
+**Data Flow:**
+1. Mobile **TAG** broadcasts LoRa packets
+2. Multiple **RECEIVERS** (A, B, C, ...) capture packets with RSSI/SNR
+3. Remote receivers stream data via **WebSocket** to central server
+4. Server aggregates all data to CSV
+5. **Trilateration** calculates tag position from RSSI values
 
-| File | Runs On | Purpose |
-|------|---------|---------|
-| `mac_server.py` | Mac | Receiver A + WebSocket server (aggregates all data) |
-| `windows_tag.py` | Windows #1 | **MOBILE** Tag/sender (transmits LoRa packets) |
-| `windows_receiver_B.py` | Windows #2 | Receiver B → sends to Mac |
-| `windows_receiver_C.py` | Windows #3 | Receiver C → sends to Mac |
+---
 
-## Prerequisites
+## Hardware Requirements
 
-All 4 laptops need Python packages:
+### LoRa Boards
+- **Wio-E5 Development Kit** (Seeed Studio) — recommended
+- Any STM32WL-based board with AT command firmware
+- Minimum: 1 tag + 3 receivers (more receivers = better accuracy)
+
+### Computers
+- Any combination of Windows, macOS, or Linux machines
+- One machine acts as central server (runs WebSocket + optionally local receiver)
+- Other machines run remote receivers or mobile tag
+
+### Antennas
+- 868 MHz antennas (EU) or 915 MHz (US)
+- Antenna orientation affects signal strength significantly
+
+---
+
+## Firmware
+
+### Custom Firmware (Included)
+
+The file `FreeRTOS_LoRaWAN_AT.hex` contains custom firmware for Wio-E5 boards with:
+- AT command interface for radio configuration
+- Test mode for continuous TX/RX
+- RSSI and SNR reporting
+
+### Flashing Firmware
+
+**Prerequisites:**
+- [STM32CubeProgrammer](https://www.st.com/en/development-tools/stm32cubeprog.html) (free from ST)
+
+**Steps:**
+
+1. **Connect board via USB** and put in DFU/bootloader mode:
+   - Hold BOOT button while pressing RESET
+   - Or: Hold BOOT, plug USB, release BOOT
+
+2. **Open STM32CubeProgrammer:**
+   - Select connection type: **USB**
+   - Click **Connect**
+
+3. **Erase chip (optional but recommended):**
+   - Go to "Erasing & Programming" tab
+   - Click **Full chip erase**
+
+4. **Flash firmware:**
+   - Browse to `FreeRTOS_LoRaWAN_AT.hex`
+   - Check "Verify programming"
+   - Click **Start Programming**
+
+5. **Reset board:**
+   - Press RESET button or power cycle
+   - Board should respond to AT commands
+
+**Verify firmware:**
+```bash
+# Connect via serial terminal (115200 baud)
+# Send: AT
+# Response: +AT: OK
+```
+
+---
+
+## Software Installation
+
+### Python Dependencies
+
 ```bash
 pip install pyserial websockets
 ```
 
+Or use requirements.txt:
+```bash
+pip install -r requirements.txt
+```
+
+### Project Files
+
+| File | Purpose |
+|------|---------|
+| `mac_server.py` | Central server + optional local receiver A |
+| `windows_tag.py` | Mobile tag transmitter (works on any OS) |
+| `windows_receiver_B.py` | Remote receiver B (WebSocket client) |
+| `windows_receiver_C.py` | Remote receiver C (WebSocket client) |
+| `trilateration.py` | Position calculation from RSSI data |
+| `position_dashboard.html` | Web-based visualization |
+
+> **Note:** Despite "mac_" and "windows_" prefixes, all scripts work on any OS. Names indicate original development targets.
+
 ---
 
-# Step-by-Step Testing Instructions
+## Serial Port Reference
 
-## STEP 1: Network Setup
+### Finding Your Port
 
-All 4 laptops must be on the **same network**:
-- Option A: Same WiFi network
-- Option B: Mobile hotspot (recommended for 4 devices)
+**Windows:**
+```powershell
+# PowerShell
+Get-WMIObject Win32_SerialPort | Select DeviceID, Description
 
-### Find Mac IP Address:
+# Or use Device Manager → Ports (COM & LPT)
+# Typical: COM3, COM5, COM7
+```
+
+**macOS:**
 ```bash
-# On Mac terminal:
+ls /dev/cu.usbserial-*
+# Typical: /dev/cu.usbserial-1110, /dev/cu.usbserial-1120
+```
+
+**Linux:**
+```bash
+ls /dev/ttyUSB* /dev/ttyACM*
+# Typical: /dev/ttyUSB0, /dev/ttyACM0
+```
+
+### Serial Configuration
+- **Baud rate:** 115200
+- **Data bits:** 8
+- **Stop bits:** 1
+- **Parity:** None
+- **Line ending:** `\r\n` (for AT commands)
+
+---
+
+## LoRa Radio Configuration
+
+All boards must use **identical radio settings**.
+
+### AT Command Format
+```
+AT+TCONF=<freq>:<power>:<bandwidth>:<sf>:<cr>:<lna>:<pa>:<crc>:<preamble>:<payload>:<implicit>:<iq>
+```
+
+### Default Configuration
+```
+AT+TCONF=868300000:14:0:7:4/5:1:1:1:16:0:0:0
+```
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| Frequency | 868300000 | 868.3 MHz (EU band) |
+| TX Power | 14 | 14 dBm |
+| Bandwidth | 0 | 125 kHz |
+| Spreading Factor | 7 | SF7 (fastest) |
+| Coding Rate | 4/5 | 4/5 redundancy |
+| LNA | 1 | Low-noise amp on |
+| PA | 1 | Power amp on |
+| CRC | 1 | CRC enabled |
+| Preamble | 16 | 16 symbols |
+| Payload | 0 | Variable length |
+| Implicit Header | 0 | Explicit header |
+| IQ Invert | 0 | Normal |
+
+### Key AT Commands
+
+| Command | Purpose | Example |
+|---------|---------|---------|
+| `ATZ` | Reset board | `ATZ` |
+| `AT+TCONF=...` | Configure radio | See above |
+| `AT+TRX=N` | Receive N packets | `AT+TRX=9999` (continuous) |
+| `AT+TTX=N` | Transmit N packets | `AT+TTX=10` |
+
+---
+
+## Quick Start
+
+### 1. Find Server IP Address
+
+**Windows:**
+```powershell
+ipconfig | Select-String "IPv4"
+```
+
+**macOS/Linux:**
+```bash
 ifconfig | grep "inet "
-# Look for IP like 192.168.x.x or 172.20.10.x
+# Or: ip addr show | grep "inet "
 ```
 
-**Write down the Mac IP: ____________**
+Note your server IP (e.g., `192.168.1.100`).
+
+### 2. Start Central Server
+
+```bash
+# With local receiver on server machine
+python mac_server.py --port /dev/cu.usbserial-1110  # macOS
+python mac_server.py --port COM5                     # Windows
+python mac_server.py --port /dev/ttyUSB0             # Linux
+
+# Demo mode (no hardware)
+python mac_server.py --demo
+```
+
+### 3. Start Remote Receivers
+
+On each receiver machine:
+```bash
+# Receiver B
+python windows_receiver_B.py --port COM5 --server ws://SERVER_IP:8765/data
+
+# Receiver C  
+python windows_receiver_C.py --port COM7 --server ws://SERVER_IP:8765/data
+```
+
+### 4. Start Mobile Tag
+
+On tag machine (walk around with this!):
+```bash
+python windows_tag.py --port COM3
+```
+
+### 5. Run Trilateration
+
+On server machine:
+```bash
+python trilateration.py --input all_receivers.csv --live
+```
+
+### 6. View Dashboard (Optional)
+
+Open `position_dashboard.html` in browser, or:
+```bash
+# Start simple HTTP server
+python -m http.server 8000
+# Open http://localhost:8000/position_dashboard.html
+```
 
 ---
 
-## STEP 2: Connect Hardware
+## Trilateration & Calibration
 
-### On Mac:
-1. Connect **1 USB cable** to the Wio-E5 receiver board
-2. Find the port:
-   ```bash
-   python3 -c "from serial.tools import list_ports; [print(p.device) for p in list_ports.comports()]"
+### RSSI-to-Distance Model
+```
+distance = 10^((RSSI_1m - RSSI) / (10 * n))
+```
+
+| Parameter | Description | Typical Value |
+|-----------|-------------|---------------|
+| `RSSI_1m` | Signal strength at 1 meter | -15 to -25 dBm |
+| `n` | Path-loss exponent | 2.0–2.5 (open), 3.0–4.5 (walls) |
+
+### Calibration Process
+
+1. **Measure RSSI at 1 meter:**
+   - Place tag exactly 1m from each receiver
+   - Capture 50–100 packets
+   - Use median RSSI value
+
+2. **Update calibration in `trilateration.py`:**
+   ```python
+   RSSI_AT_1M_PER_RECEIVER = {
+       "A": -17,  # Your measured value
+       "B": -23,
+       "C": -25,
+   }
    ```
-3. Note the receiver port:
-   - Receiver A port: `/dev/cu.usbserial-____`
 
-### On Windows Laptop #1 (MOBILE TAG):
-1. Connect **1 USB cable** to Wio-E5 TAG board
-2. Open Device Manager → Ports (COM & LPT)
-3. Note the COM port: `COM____` (e.g., COM5)
-4. **This laptop moves around with you!**
+3. **Adjust path-loss exponent:**
+   - Open indoor: n = 2.5
+   - Through walls: n = 3.5–4.5
+   - Heavy obstruction: n = 4.0–5.0
 
-### On Windows Laptop #2 (Receiver B):
-1. Connect **1 USB cable** to Wio-E5 board
-2. Open Device Manager → Ports (COM & LPT)
-3. Note the COM port: `COM____` (e.g., COM5 or COM7)
+### Receiver Positions
 
-### On Windows Laptop #3 (Receiver C):
-1. Connect **1 USB cable** to Wio-E5 board
-2. Open Device Manager → Ports (COM & LPT)
-3. Note the COM port: `COM____` (e.g., COM7 or COM8)
+Define physical coordinates in `trilateration.py`:
+```python
+RECEIVERS = {
+    "A": ReceiverPosition(x=0, y=0),    # Origin
+    "B": ReceiverPosition(x=0, y=3),    # 3m north
+    "C": ReceiverPosition(x=3, y=3),    # 3m east, 3m north
+}
+```
 
 ---
 
-## STEP 3: Test in Demo Mode First (No Hardware Needed)
+## Output Data Format
 
-This verifies network connectivity before using real hardware.
-
-### 3.1 Start Mac Server (Terminal 1 on Mac):
-```bash
-cd test/3laptop_setup
-python3 mac_server.py --demo
-```
-
-You'll see:
-```
-MAC SERVER RUNNING
-  Local Receiver: A (on DEMO)
-  WebSocket Server: ws://172.20.10.2:8765
-  
-  Windows receivers should connect to:
-    ws://172.20.10.2:8765/data
-```
-
-### 3.2 Start Windows Tag (Windows Laptop #1 - MOBILE):
-```bash
-cd test\3laptop_setup
-python windows_tag.py --demo
-```
-**Note**: In demo mode, tag just prints messages. Real mode broadcasts LoRa.
-
-### 3.3 Start Windows Receiver B (Windows Laptop #2):
-```bash
-cd test\3laptop_setup
-python windows_receiver_B.py --demo --server ws://MAC_IP:8765/data
-```
-Replace `MAC_IP` with actual Mac IP (e.g., `ws://172.20.10.2:8765/data`)
-
-### 3.4 Start Windows Receiver C (Windows Laptop #3):
-```bash
-cd test\3laptop_setup
-python windows_receiver_C.py --demo --server ws://MAC_IP:8765/data
-```
-
-### 3.5 Verify Demo Mode
-On Mac, you should see readings from A, B, and C:
-```
-  RX_A:    1.500s | RSSI:  -52 dBm | SNR:  12 dB
-  RX_B:    1.234s | RSSI:  -48 dBm | SNR:   9 dB
-  RX_C:    1.345s | RSSI:  -55 dBm | SNR:  11 dB
-```
-
-**Press Ctrl+C on all terminals to stop demo mode.**
-
----
-
-## STEP 4: Test with Real Hardware
-
-### 4.1 Start Mac Server with Real Receiver A (Terminal 1):
-```bash
-python3 mac_server.py --port /dev/cu.usbserial-XXXX
-```
-Replace `XXXX` with your actual receiver port.
-
-### 4.2 Start Windows Tag (Windows Laptop #1 - MOBILE):
-```bash
-python windows_tag.py --port COM5
-```
-Replace `COM5` with your actual tag port. **Walk around with this laptop!**
-
-### 4.3 Start Windows Receiver B (Windows Laptop #2):
-```bash
-python windows_receiver_B.py --port COM5 --server ws://MAC_IP:8765/data
-```
-Replace `COM5` with your actual receiver port.
-
-### 4.4 Start Windows Receiver C (Windows Laptop #3):
-```bash
-python windows_receiver_C.py --port COM7 --server ws://MAC_IP:8765/data
-```
-Replace `COM7` with your actual receiver port.
-
----
-
-## STEP 5: Verify Data Collection
-
-### On Mac Terminal:
-Watch for readings from all 3 receivers (A, B, C):
-```
-  RX_A:   12.345s | RSSI:  -45 dBm | SNR:  12 dB
-  RX_B:   12.567s | RSSI:  -52 dBm | SNR:   9 dB
-  RX_C:   12.890s | RSSI:  -48 dBm | SNR:  10 dB
-```
-
-### Check Output CSV:
-The Mac server saves all data to `all_receivers.csv`:
+### CSV Format (`all_receivers.csv`)
 ```csv
 timestamp_s,receiver_id,rssi_dbm,snr_db
-12.345,A,-45,12
-12.567,B,-52,9
-12.890,C,-48,10
+0.123,A,-45,12
+0.125,B,-52,9
+0.130,C,-48,10
 ```
+
+### Trilateration Output
+```
+Position: (1.52, 1.48) m | RSSI: A=-45dBm B=-52dBm C=-48dBm | Dist: A=1.2m B=2.1m C=1.8m
+```
+
+---
+
+## Network Considerations
+
+### Same Network Required
+All machines must communicate on the same network. Options:
+- **Home/Office WiFi** — easiest
+- **Mobile Hotspot** — reliable for field work
+- **Ethernet** — lowest latency
+
+### Firewall Issues
+If connections fail, allow port 8765:
+
+**Windows:**
+```powershell
+New-NetFirewallRule -DisplayName "LoRa WebSocket" -Direction Inbound -Port 8765 -Protocol TCP -Action Allow
+```
+
+**macOS:**
+```bash
+# System Preferences → Security → Firewall → Allow incoming connections
+```
+
+**Linux:**
+```bash
+sudo ufw allow 8765/tcp
+```
+
+### Enterprise Networks (eduroam, etc.)
+Many enterprise networks isolate clients. Solutions:
+- **Tailscale** — Creates overlay network (recommended)
+- **Cloudflare Tunnel** — Tunnels through firewall
+- **Mobile hotspot** — Bypass enterprise network entirely
 
 ---
 
 ## Troubleshooting
 
-### "Connection refused" on Windows:
-- Mac server not running
-- Wrong IP address
-- Firewall blocking port 8765
-
-**Fix**: On Mac, allow incoming connections:
-```bash
-# Check if port is listening
-lsof -i :8765
-```
-
-### "Cannot open COM port":
-- Port is wrong
-- Another program using the port
-- Board not connected
-
-**Fix**: List available ports:
-```bash
-python -c "from serial.tools import list_ports; [print(p.device) for p in list_ports.comports()]"
-```
-
-### No readings received:
-- Tag not transmitting
-- Radio config mismatch
-- Receivers not in RX mode
-
-**Fix**: Check that `AT+TCONF` settings are identical on ALL boards.
-
-### Receivers B/C connect but no data on Mac:
-- Serial port issue on Windows
-- LoRa packets not being received
-
-**Fix**: Check Windows terminal - it should show local readings before sending.
+| Problem | Cause | Solution |
+|---------|-------|----------|
+| No serial port found | Bad cable or missing driver | Use data cable, install CH340/CP210x driver |
+| 100% packet loss | Radio config mismatch | Verify identical `AT+TCONF` on all boards |
+| Connection refused | Server not running / firewall | Start server first, open port 8765 |
+| Inaccurate positions | Bad calibration | Measure RSSI at 1m, adjust path-loss n |
+| High RSSI variance | Antenna orientation / reflections | Rotate antenna, move away from metal |
 
 ---
 
-## Quick Start Commands
+## Advanced Configuration
 
-### Mac Terminal 1 (Server):
-```bash
-python3 mac_server.py --port /dev/cu.usbserial-1110
+### Adding More Receivers
+
+1. Copy `windows_receiver_B.py` → `windows_receiver_D.py`
+2. Change `RECEIVER_ID = "D"`
+3. Add receiver position to `trilateration.py`:
+   ```python
+   RECEIVERS["D"] = ReceiverPosition(x=3, y=0)
+   ```
+
+### Changing Frequency (US 915 MHz)
+
+Update all boards:
+```
+AT+TCONF=915000000:14:0:7:4/5:1:1:1:16:0:0:0
 ```
 
-### Mac Terminal 2 (Tag):
-```bash
-python3 mac_tag.py --port /dev/cu.usbserial-1120
-```
+### Higher Range (Lower Data Rate)
 
-### Windows Laptop 1 (Receiver B):
-```bash
-python windows_receiver_B.py --port COM5 --server ws://172.20.10.2:8765/data
+Use higher spreading factor:
 ```
+AT+TCONF=868300000:14:0:12:4/5:1:1:1:16:0:0:0
+```
+SF12 = max range, slowest; SF7 = shortest range, fastest
 
-### Windows Laptop 2 (Receiver C):
-```bash
-python windows_receiver_C.py --port COM7 --server ws://172.20.10.2:8765/data
+---
+
+## Project Structure
+
+```
+lora_log_collection/
+├── FreeRTOS_LoRaWAN_AT.hex    # Custom firmware for Wio-E5 boards
+├── mac_server.py              # Central server (any OS)
+├── mac_tag.py                 # Backup tag script
+├── windows_tag.py             # Mobile tag (any OS)
+├── windows_receiver_B.py      # Remote receiver B (any OS)
+├── windows_receiver_C.py      # Remote receiver C (any OS)
+├── trilateration.py           # Position calculation
+├── position_dashboard.html    # Web visualization
+├── requirements.txt           # Python dependencies
+├── .github/
+│   └── copilot-instructions.md  # AI assistant context
+└── README.md                  # This file
 ```
 
 ---
 
-## Output
+## References
 
-All data is saved on the Mac in `all_receivers.csv` with columns:
-- `timestamp_s` - seconds since start
-- `receiver_id` - A, B, or C
-- `rssi_dbm` - signal strength
-- `snr_db` - signal-to-noise ratio
+- [Wio-E5 Wiki](https://wiki.seeedstudio.com/LoRa-E5_STM32WLE5JC_Module/)
+- [LoRa Modulation Basics](https://www.semtech.com/lora)
+- [Log-distance Path Loss Model](https://en.wikipedia.org/wiki/Log-distance_path_loss_model)
+- [STM32CubeProgrammer](https://www.st.com/en/development-tools/stm32cubeprog.html)
