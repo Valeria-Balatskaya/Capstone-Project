@@ -36,4 +36,4 @@ desktop.ini
 *.ipynb
 
 # Keep .github folder (contains copilot-instructions.md)
-!.github/
+!github/

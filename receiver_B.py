@@ -44,10 +44,10 @@ def log(message: str):
 
 
 def list_ports():
-    """List available COM ports."""
+    """List available serial ports."""
     ports = list(serial.tools.list_ports.comports())
     if not ports:
-        print("No COM ports found!")
+        print("No serial ports found!")
         return []
     
     print("\nAvailable ports:")
@@ -84,9 +84,9 @@ def parse_lora_line(line: str, start_time: float) -> dict:
 
 
 async def main():
-    parser = argparse.ArgumentParser(description=f"Windows Receiver {RECEIVER_ID}")
-    parser.add_argument("--port", default="COM5", help="COM port (default: COM5)")
-    parser.add_argument("--server", required=True, help="Mac server URL (e.g., ws://192.168.1.100:8765/data)")
+    parser = argparse.ArgumentParser(description=f"Remote Receiver {RECEIVER_ID}")
+    parser.add_argument("--port", help="Serial port for receiver")
+    parser.add_argument("--server", required=True, help="Central server URL (e.g., ws://192.168.1.100:8765/data)")
     parser.add_argument("--list-ports", action="store_true", help="List available ports and exit")
     parser.add_argument("--demo", action="store_true", help="Demo mode (no hardware)")
     args = parser.parse_args()
@@ -96,9 +96,9 @@ async def main():
         return
     
     print("\n" + "=" * 60)
-    print(f"WINDOWS RECEIVER {RECEIVER_ID}")
+    print(f"REMOTE RECEIVER {RECEIVER_ID}")
     print("=" * 60)
-    print(f"  COM Port: {args.port}")
+    print(f"  Serial Port: {args.port}")
     print(f"  Server: {args.server}")
     print("=" * 60 + "\n")
     
@@ -125,7 +125,7 @@ async def main():
             log(f"Connecting to {args.server}...")
             
             async with websockets.connect(args.server, ping_interval=20) as ws:
-                log("Connected to Mac server!")
+                log("Connected to central server!")
                 
                 # Wait for welcome message
                 try:
@@ -187,7 +187,7 @@ async def main():
         except websockets.exceptions.ConnectionClosed as e:
             log(f"Connection closed: {e}")
         except ConnectionRefusedError:
-            log("Connection refused - is the Mac server running?")
+            log("Connection refused - is the central server running?")
         except Exception as e:
             log(f"Connection error: {e}")
         

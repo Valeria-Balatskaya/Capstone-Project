@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """
-Mac Server: Receiver A + WebSocket Server
-==========================================
-Runs on Mac with 1 receiver board connected.
-- Reads LoRa data from local receiver (Receiver A)
-- Runs WebSocket server to receive data from Windows receivers (B, C)
+Central Server: Receiver A + WebSocket Server
+==============================================
+Runs on server machine with 1 receiver board connected (optional).
+- Reads LoRa data from local receiver (Receiver A, if present)
+- Runs WebSocket server to receive data from remote receivers (B, C, etc.)
 - Aggregates ALL data and saves to CSV
 - Provides dashboard endpoint
 
 Setup:
-    1. Connect receiver board to Mac USB
+    1. Connect receiver board via USB (optional)
     2. Find port: python -c "from serial.tools import list_ports; [print(p.device) for p in list_ports.comports()]"
-    3. Run: python mac_server.py --port /dev/cu.usbserial-XXXX
+    3. Run: python server.py --port <PORT>
 
-Windows clients connect to: ws://MAC_IP:8765/data
+Remote clients connect to: ws://SERVER_IP:8765/data
 """
 
 import asyncio
@@ -163,7 +163,7 @@ async def websocket_handler(websocket, path):
             # Send welcome
             await websocket.send(json.dumps({
                 "type": "connected",
-                "message": "Connected to Mac server. Send your readings."
+                "message": "Connected to server. Send your readings."
             }))
             
             # Receive data from remote receiver
@@ -197,7 +197,7 @@ async def websocket_handler(websocket, path):
 
 
 async def read_local_serial(demo_mode: bool = False):
-    """Read from local receiver (A) connected to this Mac."""
+    """Read from local receiver (A) connected to this server."""
     global running, local_serial
     
     loop = asyncio.get_event_loop()
@@ -249,12 +249,24 @@ def print_stats():
 async def main():
     global running, start_time, local_serial
     
-    parser = argparse.ArgumentParser(description="Mac Server: Receiver A + WebSocket Server")
-    parser.add_argument("--port", default="/dev/cu.usbserial-1110", help="Serial port for local receiver")
+    parser = argparse.ArgumentParser(description="Central Server: Receiver A + WebSocket Server")
+    parser.add_argument("--port", help="Serial port for local receiver A")
     parser.add_argument("--ws-port", type=int, default=8765, help="WebSocket server port")
     parser.add_argument("--output", default="all_receivers.csv", help="Output CSV file")
     parser.add_argument("--demo", action="store_true", help="Demo mode (no hardware)")
+    parser.add_argument("--list-ports", action="store_true", help="List available serial ports and exit")
     args = parser.parse_args()
+    
+    # List ports if requested
+    if args.list_ports:
+        print("\nAvailable serial ports:")
+        ports = serial.tools.list_ports.comports()
+        if ports:
+            for p in ports:
+                print(f"  {p.device}: {p.description}")
+        else:
+            print("  No serial ports found")
+        return
     
     start_time = time.time()
     setup_csv(args.output)
@@ -281,13 +293,13 @@ async def main():
         local_ip = "localhost"
     
     print("\n" + "=" * 60)
-    print("MAC SERVER RUNNING")
+    print("CENTRAL SERVER RUNNING")
     print("=" * 60)
     print(f"  Local Receiver: A (on {args.port if not args.demo else 'DEMO'})")
     print(f"  WebSocket Server: ws://{local_ip}:{args.ws_port}")
     print(f"  CSV Output: {args.output}")
     print()
-    print("  Windows receivers should connect to:")
+    print("  Remote receivers should connect to:")
     print(f"    ws://{local_ip}:{args.ws_port}/data")
     print()
     print("  Dashboard available at:")
@@ -306,7 +318,7 @@ async def main():
         try:
             loop.add_signal_handler(sig, signal_handler)
         except NotImplementedError:
-            pass  # Windows doesn't support signals in async
+            pass  # Some platforms don't support signals in async
     
     # Start WebSocket server
     async with serve(websocket_handler, "0.0.0.0", args.ws_port):

@@ -9,10 +9,10 @@ Usage:
     2. Then run trilateration with live data
 
 Calibration:
-    python trilateration.py --calibrate --receiver A --distance 1.0
+    python trilateration.py --calibrate --input all_receivers.csv
 
 Live positioning:
-    python trilateration.py --input all_receivers.csv
+    python trilateration.py --input all_receivers.csv --live
 """
 
 import argparse
@@ -38,29 +38,14 @@ class ReceiverPosition:
 
 # Receiver positions in meters (measure these!)
 RECEIVERS = {
-    "A": ReceiverPosition(x=0.0, y=0.0, name="A"),   # Mac - set as origin
-    "B": ReceiverPosition(x=0.0, y=3.0, name="B"),   # Windows #2 (stationary)
-    "C": ReceiverPosition(x=3.0, y=3.0, name="C"),   # Windows #3 (stationary)
+    "A": ReceiverPosition(x=0.0, y=0.0, name="A"),   # Server receiver - set as origin
+    "B": ReceiverPosition(x=0.0, y=6.0, name="B"),   # Remote receiver B (stationary)
+    "C": ReceiverPosition(x=8.0, y=6.0, name="C"),   # Remote receiver C (stationary)
 }
 
 # RSSI calibration values (calibrate these!)
-# Per-receiver calibration - use measured RSSI at exactly 1 meter for each receiver
-RSSI_AT_1M_PER_RECEIVER = {
-    "A": -17,  # Measured: -17 dBm at 1m
-    "B": -23,  # Measured: -23 dBm at 1m
-    "C": -68,  # Measured: -68 dBm at 1m (through walls)
-}
-
-# Per-receiver path loss exponent (for tag inside, receivers outside)
-# Higher n = more obstacles/walls between tag and receiver
-PATH_LOSS_N_PER_RECEIVER = {
-    "A": 3.0,  # Light wall penetration
-    "B": 3.0,  # Light wall penetration
-    "C": 4.5,  # Heavy wall penetration (weak signal)
-}
-
-RSSI_AT_1M = -36      # Fallback global value
-PATH_LOSS_N = 2.5     # Fallback global path loss
+RSSI_AT_1M = -45      # RSSI value measured at exactly 1 meter distance
+PATH_LOSS_N = 2.5     # Path loss exponent: 2.0=open, 2.5=indoor, 3.5=walls
 
 # ============================================================
 
@@ -79,23 +64,25 @@ def rssi_to_distance(rssi: float, rssi_1m: float = RSSI_AT_1M, n: float = PATH_L
     Returns:
         Estimated distance in meters
     """
-    if rssi >= rssi_1m:
-        return abs(rssi - rssi_1m) * 0.01  
+    # Calculate distance using log-distance model
+    # When rssi == rssi_1m, exponent is 0, so distance = 10^0 = 1.0m
+    exponent = (rssi_1m - rssi) / (10 * n)
+    distance = 10 ** exponent
     
-    distance = 10 ** ((rssi_1m - rssi) / (10 * n))
+    # Clamp to reasonable range (0.1m to 100m)
+    distance = max(0.1, min(100.0, distance))
+    
     return round(distance, 2)
 
 
-def trilaterate(distances: Dict[str, float], variances: Dict[str, float] = None) -> Optional[Tuple[float, float]]:
+def trilaterate(distances: Dict[str, float]) -> Optional[Tuple[float, float]]:
     """
-    Calculate position using weighted trilateration from 3 receivers.
+    Calculate position using trilateration from 3 receivers.
     
-    Uses weighted least squares with RSSI variance weighting.
-    More stable RSSI (lower variance) gets higher weight.
+    Uses least squares approximation for overdetermined system.
     
     Args:
         distances: Dict of receiver_id -> distance in meters
-        variances: Dict of receiver_id -> RSSI variance (lower = better)
     
     Returns:
         (x, y) position in meters, or None if insufficient data
@@ -104,19 +91,11 @@ def trilaterate(distances: Dict[str, float], variances: Dict[str, float] = None)
     if len(distances) < 3:
         return None
     
-    # Get receiver positions, distances, and weights
+    # Get receiver positions and distances
     receivers = []
-    weights = []
-    
     for rid, dist in distances.items():
         if rid in RECEIVERS:
             receivers.append((RECEIVERS[rid], dist))
-            
-            # Weight = 1 / (variance + 0.1) - more stable = higher weight
-            if variances and rid in variances:
-                weights.append(1.0 / (variances[rid] + 0.1))
-            else:
-                weights.append(1.0)
     
     if len(receivers) < 3:
         return None
@@ -125,7 +104,6 @@ def trilaterate(distances: Dict[str, float], variances: Dict[str, float] = None)
     r1, d1 = receivers[0]
     r2, d2 = receivers[1]
     r3, d3 = receivers[2]
-    w1, w2, w3 = weights[0], weights[1], weights[2]
     
     # Trilateration equations:
     # (x - x1)² + (y - y1)² = d1²
@@ -144,38 +122,15 @@ def trilaterate(distances: Dict[str, float], variances: Dict[str, float] = None)
     E = 2 * (r3.y - r1.y)
     F = d1**2 - d3**2 + r3.x**2 - r1.x**2 + r3.y**2 - r1.y**2
     
-    # Apply weights to equations
-    A *= w2
-    B *= w2
-    C *= w2
-    
-    D *= w3
-    E *= w3
-    F *= w3
-    
-    # Solve weighted system: Ax + By = C, Dx + Ey = F
+    # Solve system: Ax + By = C, Dx + Ey = F
     denom = A * E - B * D
     
     if abs(denom) < 0.0001:
-        # Receivers are collinear or weights cancel out
-        # Fall back to geometric centroid
-        return (
-            round((r1.x + r2.x + r3.x) / 3, 2),
-            round((r1.y + r2.y + r3.y) / 3, 2)
-        )
+        # Receivers are collinear, can't solve
+        return None
     
     x = (C * E - B * F) / denom
     y = (A * F - C * D) / denom
-    
-    # Sanity check: reject impossible positions (too far from all receivers)
-    max_dist = max(d1, d2, d3)
-    centroid_x = (r1.x + r2.x + r3.x) / 3
-    centroid_y = (r1.y + r2.y + r3.y) / 3
-    dist_to_centroid = ((x - centroid_x)**2 + (y - centroid_y)**2)**0.5
-    
-    if dist_to_centroid > max_dist * 1.5:
-        # Position too far from receiver triangle, likely calculation error
-        return None
     
     return (round(x, 2), round(y, 2))
 
@@ -219,7 +174,7 @@ def weighted_trilaterate(readings: List[Dict]) -> Optional[Tuple[float, float]]:
 
 
 class PositionTracker:
-    """Track tag position over time with smoothing and outlier rejection."""
+    """Track tag position over time with smoothing."""
     
     def __init__(self, window_size: int = 5):
         self.window_size = window_size
@@ -240,33 +195,20 @@ class PositionTracker:
             })
     
     def get_position(self) -> Optional[Tuple[float, float]]:
-        """Calculate current position from recent readings with outlier rejection."""
+        """Calculate current position from recent readings."""
         distances = {}
-        rssi_variances = {}  # Track RSSI stability for weighting
         
         for rid, readings in self.recent_readings.items():
             if not readings:
                 continue
             
-            # Outlier rejection: remove RSSI values > 2 std devs from median
-            rssi_values = [r["rssi"] for r in readings]
-            if len(rssi_values) >= 3:
-                median = sorted(rssi_values)[len(rssi_values) // 2]
-                std = (sum((x - median)**2 for x in rssi_values) / len(rssi_values)) ** 0.5
-                filtered = [x for x in rssi_values if abs(x - median) <= 2 * std]
-                if filtered:
-                    rssi_values = filtered
-                rssi_variances[rid] = std  # Lower variance = more reliable
+            # Use median RSSI for robustness
+            rssi_values = sorted([r["rssi"] for r in readings])
+            median_rssi = rssi_values[len(rssi_values) // 2]
             
-            median_rssi = sorted(rssi_values)[len(rssi_values) // 2]
-            
-            # Use per-receiver calibration and path loss
-            rssi_1m = RSSI_AT_1M_PER_RECEIVER.get(rid, RSSI_AT_1M)
-            n = PATH_LOSS_N_PER_RECEIVER.get(rid, PATH_LOSS_N)
-            distances[rid] = rssi_to_distance(median_rssi, rssi_1m, n)
+            distances[rid] = rssi_to_distance(median_rssi)
         
-        # Use weighted trilateration based on RSSI stability
-        position = trilaterate(distances, rssi_variances)
+        position = trilaterate(distances)
         
         if position:
             self.position_history.append(position)
@@ -287,10 +229,7 @@ class PositionTracker:
             if readings:
                 rssi_values = sorted([r["rssi"] for r in readings])
                 median_rssi = rssi_values[len(rssi_values) // 2]
-                # Use per-receiver calibration and path loss
-                rssi_1m = RSSI_AT_1M_PER_RECEIVER.get(rid, RSSI_AT_1M)
-                n = PATH_LOSS_N_PER_RECEIVER.get(rid, PATH_LOSS_N)
-                distances[rid] = rssi_to_distance(median_rssi, rssi_1m, n)
+                distances[rid] = rssi_to_distance(median_rssi)
         
         return distances
     
@@ -371,19 +310,31 @@ def process_csv_file(filepath: str, live: bool = False):
             time.sleep(0.5)
 
 
-def calibration_mode():
+def calibration_mode(filepath: str = None, target_count: int = 100, receiver: str = None):
     """
-    Interactive calibration helper.
+    Automatic calibration mode - collects readings and calculates median RSSI.
+    
+    Args:
+        filepath: CSV file to read from (if None, shows help only)
+        target_count: Number of readings to collect (default: 100)
+        receiver: Specific receiver to calibrate (None = all receivers)
     """
-    print("\n" + "=" * 60)
-    print("RSSI CALIBRATION MODE")
-    print("=" * 60)
-    print("""
-To calibrate, you need to find the RSSI value at exactly 1 meter:
+    if not filepath:
+        # Show calibration help
+        print("\n" + "=" * 60)
+        print("RSSI CALIBRATION MODE")
+        print("=" * 60)
+        print("""
+To calibrate automatically:
 
-1. Place the TAG exactly 1 meter from a receiver
-2. Collect several RSSI readings
-3. Use the average as RSSI_AT_1M
+1. Place TAG exactly 1 meter from receiver(s)
+2. Start server and tag to collect data
+3. Run: python trilateration.py --calibrate --input all_receivers.csv
+
+This will:
+  - Collect 100 readings (customizable with --count)
+  - Calculate median RSSI for each receiver
+  - Display calibration values to use
 
 Typical values:
   - Open area: -40 to -50 dBm
@@ -391,26 +342,149 @@ Typical values:
   - With obstacles: -50 to -65 dBm
 
 Current setting: RSSI_AT_1M = {rssi_1m} dBm
-
-To update, edit trilateration.py and change RSSI_AT_1M value.
 """.format(rssi_1m=RSSI_AT_1M))
+        
+        # Distance calculator
+        print("\nRSSI → Distance Calculator:")
+        print("-" * 40)
+        
+        test_rssi = [-40, -45, -50, -55, -60, -65, -70, -75, -80]
+        print(f"{'RSSI (dBm)':<12} {'Distance (m)':<12}")
+        for rssi in test_rssi:
+            dist = rssi_to_distance(rssi)
+            print(f"{rssi:<12} {dist:<12.2f}")
+        return
     
-    # Distance calculator
-    print("\nRSSI → Distance Calculator:")
-    print("-" * 40)
+    # Automatic calibration mode
+    print("\n" + "=" * 70)
+    print("AUTOMATIC CALIBRATION - COLLECTING READINGS")
+    print("=" * 70)
+    print(f"Target: {target_count} readings per receiver")
+    if receiver:
+        print(f"Calibrating receiver: {receiver}")
+    print("=" * 70)
+    print()
     
-    test_rssi = [-40, -45, -50, -55, -60, -65, -70, -75, -80]
-    print(f"{'RSSI (dBm)':<12} {'Distance (m)':<12}")
-    for rssi in test_rssi:
-        dist = rssi_to_distance(rssi)
-        print(f"{rssi:<12} {dist:<12.2f}")
+    # Collect readings
+    readings_by_receiver = {"A": [], "B": [], "C": []}
+    last_pos = 0
+    start_time = time.time()
+    
+    print("Collecting data", end="", flush=True)
+    
+    while True:
+        try:
+            with open(filepath, 'r') as f:
+                reader = csv.DictReader(f)
+                rows = list(reader)
+                
+                # Process new rows
+                for row in rows[last_pos:]:
+                    rid = row.get('receiver_id', '')
+                    if rid in readings_by_receiver:
+                        if receiver is None or rid == receiver:
+                            rssi = float(row.get('rssi_dbm', row.get('rssi', -70)))
+                            readings_by_receiver[rid].append(rssi)
+                
+                last_pos = len(rows)
+                
+                # Check if we have enough readings
+                if receiver:
+                    total = len(readings_by_receiver.get(receiver, []))
+                else:
+                    total = min(len(v) for v in readings_by_receiver.values() if v)
+                
+                # Progress indicator
+                if total > 0 and total % 10 == 0:
+                    print(".", end="", flush=True)
+                
+                if total >= target_count:
+                    print(" Done!")
+                    break
+                
+                # Timeout after 60 seconds
+                if time.time() - start_time > 60:
+                    print(" Timeout!")
+                    print(f"\nWarning: Only collected {total} readings in 60 seconds")
+                    break
+                    
+        except FileNotFoundError:
+            print(f"\nERROR: File not found: {filepath}")
+            print("Make sure server.py is running and collecting data!")
+            return
+        except Exception as e:
+            print(f"\nError: {e}")
+            return
+        
+        time.sleep(0.1)
+    
+    # Calculate statistics
+    print("\n" + "=" * 70)
+    print("CALIBRATION RESULTS")
+    print("=" * 70)
+    print()
+    
+    results = {}
+    
+    for rid, rssi_list in readings_by_receiver.items():
+        if not rssi_list:
+            continue
+        
+        if receiver and rid != receiver:
+            continue
+        
+        sorted_rssi = sorted(rssi_list)
+        median_rssi = sorted_rssi[len(sorted_rssi) // 2]
+        mean_rssi = sum(rssi_list) / len(rssi_list)
+        min_rssi = min(rssi_list)
+        max_rssi = max(rssi_list)
+        std_dev = (sum((x - mean_rssi)**2 for x in rssi_list) / len(rssi_list)) ** 0.5
+        
+        results[rid] = median_rssi
+        
+        print(f"Receiver {rid} ({len(rssi_list)} readings):")
+        print(f"  Median RSSI: {median_rssi:.1f} dBm  ← USE THIS VALUE")
+        print(f"  Mean RSSI:   {mean_rssi:.1f} dBm")
+        print(f"  Range:       {min_rssi:.1f} to {max_rssi:.1f} dBm")
+        print(f"  Std Dev:     {std_dev:.2f} dB")
+        print()
+    
+    if not results:
+        print("ERROR: No readings collected!")
+        print("Make sure:")
+        print("  1. Tag is transmitting (run tag.py)")
+        print("  2. Server is receiving data (check all_receivers.csv)")
+        return
+    
+    # Show configuration to copy
+    print("=" * 70)
+    print("COPY THIS TO trilateration.py:")
+    print("=" * 70)
+    print()
+    
+    if len(results) == 1:
+        rid = list(results.keys())[0]
+        print(f"RSSI_AT_1M = {int(results[rid])}      # Calibrated for receiver {rid} at 1m")
+    else:
+        # Show average if multiple receivers
+        avg_rssi = sum(results.values()) / len(results)
+        print(f"RSSI_AT_1M = {int(avg_rssi)}      # Average from receivers: {', '.join(results.keys())}")
+        print()
+        print("# Individual receiver values:")
+        for rid, rssi in sorted(results.items()):
+            print(f"#   Receiver {rid}: {int(rssi)} dBm")
+    
+    print()
+    print("=" * 70)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Trilateration for LoRa Indoor Positioning")
-    parser.add_argument("--input", "-i", help="Input CSV file (from mac_server.py)")
+    parser.add_argument("--input", "-i", help="Input CSV file (from server.py)")
     parser.add_argument("--live", "-l", action="store_true", help="Live mode - watch file for updates")
     parser.add_argument("--calibrate", "-c", action="store_true", help="Calibration mode")
+    parser.add_argument("--count", type=int, default=100, help="Number of readings for calibration (default: 100)")
+    parser.add_argument("--receiver", choices=["A", "B", "C"], help="Calibrate specific receiver only")
     parser.add_argument("--rssi-1m", type=float, help="Override RSSI at 1 meter")
     parser.add_argument("--path-loss", "-n", type=float, help="Override path loss exponent")
     
@@ -424,13 +498,15 @@ def main():
         PATH_LOSS_N = args.path_loss
     
     if args.calibrate:
-        calibration_mode()
+        calibration_mode(filepath=args.input, target_count=args.count, receiver=args.receiver)
     elif args.input:
         process_csv_file(args.input, live=args.live)
     else:
         parser.print_help()
         print("\n\nExample usage:")
-        print("  python trilateration.py --calibrate")
+        print("  python trilateration.py --calibrate --input all_receivers.csv")
+        print("  python trilateration.py --calibrate --input all_receivers.csv --count 50")
+        print("  python trilateration.py --calibrate --input all_receivers.csv --receiver A")
         print("  python trilateration.py --input all_receivers.csv")
         print("  python trilateration.py --input all_receivers.csv --live")
 
